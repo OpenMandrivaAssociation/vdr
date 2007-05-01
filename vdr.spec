@@ -4,7 +4,7 @@
 # maintpatch example: %nil, -1, -2, -3
 %define maintpatch %nil
 %define apiversion 1.4.5
-%define rel	1
+%define rel	2
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
@@ -30,10 +30,6 @@
 %define vdr_chanlogodir		%{vdr_datadir}/chanlogos
 %define vdr_themedir		%{_localstatedir}/%{name}/themes
 
-# Custom patch
-# --with custom=filename.patch
-%bcond_with	custom
-
 %define pluginflags	-fPIC
 
 Summary:	Video Disk Recorder - PVR software
@@ -54,6 +50,8 @@ Source6:	vdr-sky.sysconfig
 
 Patch2:		vdr-1.4.0-subtitles-friend-declaration.patch
 Patch3:		vdr-1.4.2-getdevice.diff
+Patch4:		vdr-1.4.6-rsvps.patch
+Patch5:		vdr-1.4.6-nit.diff
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # Updated with each version
@@ -69,7 +67,7 @@ Patch22:	vdr-1.4.1-dd-record-option.patch
 # http://www.hoochvdr.info/files/vdr-%version-core-yaepg.diff
 Patch30:	http://www.hoochvdr.info/files/vdr-1.4.0-core-yaepg.diff
 
-# From http://www.lötzke.de/dvb/VDR_LNB_sharing_patch/
+# From http://www.lÃ¶tzke.de/dvb/VDR_LNB_sharing_patch/
 # Context slightly modified to resolve conflicts
 Patch34:	configurableLNBshare-VDR_1.4.3.mod.patch
 
@@ -98,9 +96,8 @@ Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.4
 # the default VDR behaviour
 Patch60:	vdr-1.4.3-exthooks.patch
 
-%if %with custom
-Patch100:	%(A="%_with_custom"; echo "${A#*--with-custom=}")
-%endif
+# From epgsearch
+Patch65:	MainMenuHooks-v1_0.patch
 
 BuildRoot:	%{_tmppath}/%{name}-buildroot
 BuildRequires:	libcap-devel libjpeg-devel ncurses-devel
@@ -230,6 +227,8 @@ This plugin shows how to add SVDRP support to a plugin.
 %setup -q
 
 %patch3 -p1
+%patch4 -p1
+%patch5 -p1
 %patch11 -p1
 %patch2 -p1
 %patch12 -p1
@@ -247,10 +246,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch52 -p1
 %patch53 -p1
 %patch60 -p1
-
-%if %with custom
-%patch100 -p1
-%endif
+%patch65 -p1
 
 sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\0 \" (%version-%release)\"/" vdr.c
 
