@@ -4,7 +4,7 @@
 # maintpatch example: %nil, -1, -2, -3
 %define maintpatch %nil
 %define apiversion 1.4.5
-%define rel	2
+%define rel	3
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
@@ -227,7 +227,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %setup -q
 
 %patch3 -p1
-%patch4 -p1
+#patch4 -p1
 %patch5 -p1
 %patch11 -p1
 %patch2 -p1
