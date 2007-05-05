@@ -4,7 +4,7 @@
 # maintpatch example: %nil, -1, -2, -3
 %define maintpatch %nil
 %define apiversion 1.4.5
-%define rel	4
+%define rel	5
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
