@@ -3,7 +3,7 @@
 %define version	1.4.6
 %define maintpatch 1
 %define apiversion 1.4.5
-%define rel	7
+%define rel	8
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
@@ -282,7 +282,11 @@ EOF
 cat > vdr.macros <<EOF
 ## VDR plugin macros ##
 
-%%vdr_version		%version%maintpatch
+%if %maintpatch
+%%vdr_version		%version-%maintpatch
+%else
+%%vdr_version		%version
+%endif
 %%vdr_rpmversion	%version
 %%vdr_apiversion	%apiversion
 %%vdr_abi		%vdr_abi
