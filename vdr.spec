@@ -2,16 +2,16 @@
 %define name	vdr
 %define version	1.4.6
 # maintpatch example: %nil, -1, -2, -3
-%define maintpatch %nil
+%define maintpatch 1
 %define apiversion 1.4.5
-%define rel	5
+%define rel	6
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 1
+%define vdr_sub_abi 2
 %define vdr_abi	%{apiversion}_abi_%{vdr_sub_abi}
 
-%define subtitles_version	0.4.0
+%define subtitles_version	0.5.0
 %define ttxtsubs_version	0.0.5
 %define liemikuutio_version 	1.13
 %define jumpplay_version	0.9
@@ -48,14 +48,12 @@ Source4:	vdr.sysconfig
 Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
 
-Patch2:		vdr-1.4.0-subtitles-friend-declaration.patch
 Patch3:		vdr-1.4.2-getdevice.diff
 Patch4:		vdr-1.4.6-rsvps.patch
-Patch5:		vdr-1.4.6-nit.diff
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # Updated with each version
-Patch11:	http://www.saunalahti.fi/~rahrenbe/vdr/patches/vdr-1.4.5-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff.gz
+Patch11:	http://www.saunalahti.fi/~rahrenbe/vdr/patches/vdr-1.4.6-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff.gz
 Patch12:	http://www.saunalahti.fi/~rahrenbe/vdr/patches/vdr-1.4.5-liemikuutio-%liemikuutio_version.diff.gz
 
 # From http://e-tobi.net/ Debian repository
@@ -99,6 +97,12 @@ Patch60:	vdr-1.4.3-exthooks.patch
 # From epgsearch
 Patch65:	MainMenuHooks-v1_0.patch
 
+%if %maintpatch
+%(for n in {1..%maintpatch}; do
+	echo "Patch7$n: ftp://ftp.cadsoft.de/vdr/Developer/vdr-%version-$n.diff"
+done)
+%endif
+
 BuildRoot:	%{_tmppath}/%{name}-buildroot
 BuildRequires:	libcap-devel libjpeg-devel ncurses-devel
 Requires(post): rpm-helper
@@ -114,7 +118,7 @@ Requires:	ccp >= 0.4.1
 
 %description
 VDR (Video Disc Recorder) is a very powerful and customizable PVR
-software. One of the most common usages of VDR is as a digital
+software. One of the most common usage cases of VDR is as a digital
 set-top-box with the picture displayed in a television set. VDR can
 also be used on desktop or even without any video output devices.
 There are also lots of different plugins available to extend VDR's
@@ -122,12 +126,13 @@ capabilities.
 
 See http://www.linuxtv.org/vdrwiki/ for more information.
 
-VDR is patched with the patches known as liemikuutio, sort-options,
-dd-record-option, configurableLNBshare, sourcecaps, jumpplay,
-submenu, timer-info and cmdsubmenu. It is also patched for numerous
-plugins.
-%if "%maintpatch" != ""
-VDR is additionally patched to the maintenance release %version%maintpatch.
+VDR in this package is patched with the patches known as
+liemikuutio, sort-options, dd-record-option, configurableLNBshare,
+sourcecaps, jumpplay, submenu, timer-info, cmdsubmenu, and with
+patches which are required by various plugins.
+%if %maintpatch
+This build is additionally patched to the maintenance release
+%version-%maintpatch.
 %endif
 
 %package common
@@ -227,10 +232,8 @@ This plugin shows how to add SVDRP support to a plugin.
 %setup -q
 
 %patch3 -p1
-#patch4 -p1
-%patch5 -p1
+%patch4 -p1
 %patch11 -p1
-%patch2 -p1
 %patch12 -p1
 %patch20 -p1
 %patch21 -p1
@@ -247,6 +250,12 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch53 -p1
 %patch60 -p1
 %patch65 -p1
+
+%if %maintpatch
+%(for n in {1..%maintpatch}; do
+	echo "%%patch7$n -p1"
+done)
+%endif
 
 sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\0 \" (%version-%release)\"/" vdr.c
 
@@ -447,8 +456,8 @@ install -d -m755 %{buildroot}%{_sysconfdir}/cron.daily
 install -m755 %SOURCE5 %{buildroot}%{_sysconfdir}/cron.daily/getskyepg
 install -m644 %SOURCE6 %{buildroot}%{_sysconfdir}/sysconfig/%{name}-sky
 
-# svdrpsend
-install -m755 svdrpsend.pl %{buildroot}%{_bindir}
+# scripts
+install -m755 *.pl %{buildroot}%{_bindir}
 
 %clean
 rm -rf %{buildroot}
@@ -494,6 +503,8 @@ fi
 %{_bindir}/vdr
 %{_initrddir}/%{name}
 %{_bindir}/runvdr
+%{_bindir}/epg2html.pl
+%{_bindir}/summary2info.pl
 %{_bindir}/svdrpsend.pl
 %{_mandir}/man1/vdr.1*
 %{_mandir}/man5/vdr.5*
