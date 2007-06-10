@@ -46,6 +46,7 @@ Source3:	vdr-shutdown.sh.example
 Source4:	vdr.sysconfig
 Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
+Source7:	vdr-README.mdv
 
 Patch3:		vdr-1.4.2-getdevice.diff
 Patch4:		vdr-1.4.6-rsvps.patch
@@ -262,6 +263,8 @@ sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\0 \" (%
 [ $(sed -rn '/define APIVERSION/s/^.*"(.*)".*$/\1/p' config.h) == %apiversion ]
 
 cp -a %SOURCE3 shutdown.sh.example
+
+cat %SOURCE7 | sed 's,@vdr_plugin_dir@,%{vdr_plugin_dir},' > README.mdv
 
 # Comment default examples out
 perl -pi -e "s/^S/# S/" diseqc.conf
