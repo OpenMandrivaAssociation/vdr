@@ -3,12 +3,12 @@
 %define version	1.4.7
 %define maintpatch 0
 %define apiversion 1.4.5
-%define rel	1
+%define rel	2
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 2
-%define vdr_abi	%{apiversion}_abi_%{vdr_sub_abi}
+%define vdr_sub_abi 3
+%define vdr_abi	%{apiversion}_%{_arch}_abi_%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
 %define ttxtsubs_version	0.0.5
@@ -52,9 +52,10 @@ Patch3:		vdr-1.4.2-getdevice.diff
 Patch4:		vdr-1.4.6-rsvps.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
-# Updated with each version
-Patch11:	http://www.saunalahti.fi/~rahrenbe/vdr/patches/vdr-1.4.6-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff.gz
-Patch12:	http://www.saunalahti.fi/~rahrenbe/vdr/patches/vdr-1.4.5-liemikuutio-%liemikuutio_version.diff.gz
+# and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
+# Updated with each version, gunzipped
+Patch11:	vdr-1.4.6-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff
+Patch12:	vdr-1.4.5-liemikuutio-%liemikuutio_version.diff
 
 # From http://e-tobi.net/ Debian repository
 Patch20:	vdr-1.4.0-analogtv.patch
@@ -64,6 +65,9 @@ Patch22:	vdr-1.4.1-dd-record-option.patch
 # From http://www.hoochvdr.info/modules.php?name=Forums&file=index
 # http://www.hoochvdr.info/files/vdr-%version-core-yaepg.diff
 Patch30:	http://www.hoochvdr.info/files/vdr-1.4.0-core-yaepg.diff
+
+# From graphtft
+Patch32:	vdr-1.4.3.plain-menu-column.diff
 
 # From http://www.lötzke.de/dvb/VDR_LNB_sharing_patch/
 # Context slightly modified to resolve conflicts
@@ -83,12 +87,19 @@ Patch42:	vdr-1.3.41-noepgmenu.mod.patch
 # From decruft
 Patch45:	vdr-1.3.20-SetGroupSep.diff
 
+# From reelchannelscan
+Patch47:	channelscan-vdr.patch
+
 # From http://toms-cafe.de/vdr/download/
 # Context slightly modified to resolve conflicts
 Patch50:	http://toms-cafe.de/vdr/download/vdr-jumpplay-%jumpplay_version-1.4.0.mod.diff
 Patch51:	http://toms-cafe.de/vdr/download/vdr-submenu-%submenu_version-1.3.38+.diff
-Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.3.45.diff
+Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.3.45.mod.diff
 Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.4.0.diff
+
+# From pin
+# Context modified to resolve conflicts
+Patch58:	vdr-1.4.5-pin.mod.diff
 
 # Hooks that allow plugins to do stuff instead of unconditionally patching
 # the default VDR behaviour
@@ -239,15 +250,18 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch21 -p1
 %patch22 -p1
 %patch30 -p1
+%patch32 -p2
 %patch34 -p1
 %patch36 -p1
 %patch40 -p1
 %patch42 -p1
 %patch45 -p1
+%patch47 -p1
 %patch50 -p1
 %patch51 -p1
 %patch52 -p1
 %patch53 -p1
+%patch58 -p2
 %patch60 -p1
 %patch65 -p1
 
@@ -579,5 +593,3 @@ fi
 %doc PLUGINS/src/svdrpdemo/HISTORY
 %doc PLUGINS/src/svdrpdemo/README
 %{vdr_plugin_dir}/libvdr-svdrpdemo.so.%{apiversion}
-
-
