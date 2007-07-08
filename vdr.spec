@@ -99,6 +99,8 @@ Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.4
 
 # From pin
 # Context modified to resolve conflicts
+# Added check for pin plugin existence before showing pin-specific options
+# in timer screen.
 Patch58:	vdr-1.4.5-pin.mod.diff
 
 # Hooks that allow plugins to do stuff instead of unconditionally patching
