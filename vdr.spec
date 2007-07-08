@@ -28,6 +28,7 @@
 %define	vdr_datadir		%{_datadir}/%{name}
 %define vdr_chanlogodir		%{vdr_datadir}/chanlogos
 %define vdr_themedir		%{_localstatedir}/%{name}/themes
+%define vdr_epgimagesdir	%{_var}/cache/%{name}/epgimages
 
 %define pluginflags	-fPIC
 
@@ -321,6 +322,7 @@ cat > vdr.macros <<EOF
 %%_vdr_cfgdir		%{vdr_cfgdir}
 %%_vdr_chanlogodir	%{vdr_chanlogodir}
 %%_vdr_themedir		%{vdr_themedir}
+%%_vdr_epgimagesdir	%{vdr_epgimagesdir}
 
 %%vdr_plugin_build \\
     %%make all							\\\\\\
@@ -461,6 +463,7 @@ install -d -m755 %{buildroot}%{vdr_plugin_dir}
 install -d -m755 %{buildroot}%{vdr_plugin_datadir}
 install -d -m755 %{buildroot}%{vdr_plugin_cachedir}
 install -d -m755 %{buildroot}%{vdr_plugin_paramdir}
+install -d -m755 %{buildroot}%{vdr_epgimagesdir}
 
 # init stuff
 install -d -m755 %{buildroot}%{_initrddir}
@@ -537,6 +540,7 @@ fi
 %dir %{vdr_chanlogodir}
 %{vdr_cfgdir}/themes
 %dir %{vdr_plugin_paramdir}
+%dir %{vdr_epgimagesdir}
 
 %files common
 %defattr(-,root,root)
