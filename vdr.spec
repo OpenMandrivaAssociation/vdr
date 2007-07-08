@@ -108,6 +108,9 @@ Patch58:	vdr-1.4.5-pin.mod.diff
 # the default VDR behaviour
 Patch60:	vdr-1.4.3-exthooks.patch
 
+# From sc
+Patch63:	vdr-1.4.x-sc7.diff
+
 # From epgsearch
 Patch65:	MainMenuHooks-v1_0.patch
 
@@ -266,6 +269,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch53 -p1
 %patch58 -p2
 %patch60 -p1
+%patch63 -p1
 %patch65 -p1
 
 %if %maintpatch
