@@ -49,6 +49,7 @@ Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
 Source7:	vdr-README.mdv
 
+Patch1:		vdr-translationerror-only-when-debug.patch
 Patch3:		vdr-1.4.2-getdevice.diff
 Patch4:		vdr-1.4.6-rsvps.patch
 
@@ -248,6 +249,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %prep
 %setup -q
 
+%patch1 -p1
 %patch3 -p1
 %patch4 -p1
 %patch11 -p1
