@@ -3,11 +3,11 @@
 %define version	1.4.7
 %define maintpatch 0
 %define apiversion 1.4.5
-%define rel	2
+%define rel	3
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 3
+%define vdr_sub_abi 4
 %define vdr_abi	%{apiversion}_%{_lib}_abi_%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
