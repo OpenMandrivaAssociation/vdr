@@ -8,7 +8,7 @@
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
 %define vdr_sub_abi 3
-%define vdr_abi	%{apiversion}_%{_arch}_abi_%{vdr_sub_abi}
+%define vdr_abi	%{apiversion}_%{_lib}_abi_%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
 %define ttxtsubs_version	0.0.5
