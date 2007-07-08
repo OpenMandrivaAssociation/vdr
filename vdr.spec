@@ -363,7 +363,7 @@ output device, the recommended maximum number of colors is 6.
 vdr_plugin_params_do() { \\
 	vdr_plugin_params_handle() { \\
 		if echo "\$gotparam" | grep -q "\$gotvar"; then \\
-			echo "\$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
+			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
 			gotparam="\${gotparam//\$gotvar/'\\\\$\$gotvar'}" \\
 			echo "[ -n \\\\"\\\\$\$gotvar\\\\" ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
