@@ -30,7 +30,7 @@
 %define vdr_themedir		%{_localstatedir}/%{name}/themes
 %define vdr_epgimagesdir	%{_var}/cache/%{name}/epgimages
 
-%define pluginflags	-fPIC
+%define vdr_plugin_flags	%{optflags} -fPIC
 
 Summary:	Video Disk Recorder - PVR software
 Name:		%{name}
@@ -317,6 +317,7 @@ cat > vdr.macros <<EOF
 %%vdr_apiversion	%apiversion
 %%vdr_abi		%vdr_abi
 
+%%vdr_plugin_flags	%vdr_plugin_flags
 %%vdr_add_optflags	%%nil
 
 %%_vdr_plugin_dir	%{vdr_plugin_dir}
@@ -332,8 +333,8 @@ cat > vdr.macros <<EOF
 
 %%vdr_plugin_build \\
     %%make all							\\\\\\
-    CFLAGS="%%optflags %pluginflags %%vdr_add_optflags"		\\\\\\
-    CXXFLAGS="%%optflags %pluginflags %%vdr_add_optflags"	\\\\\\
+    CFLAGS="%%vdr_plugin_flags %%vdr_add_optflags"		\\\\\\
+    CXXFLAGS="%%vdr_plugin_flags %%vdr_add_optflags"		\\\\\\
     PLUGINLIBDIR=%%{_vdr_plugin_dir}				\\\\\\
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
@@ -435,7 +436,7 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 
 %build
 %make
-%make plugins CFLAGS="%optflags %pluginflags" CXXFLAGS="%optflags %pluginflags"
+%make plugins CFLAGS="%vdr_plugin_flags" CXXFLAGS="%vdr_plugin_flags"
 
 %install
 rm -rf %{buildroot}
