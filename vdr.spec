@@ -3,7 +3,7 @@
 %define version	1.4.7
 %define maintpatch 0
 %define apiversion 1.4.5
-%define rel	5
+%define rel	6
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
@@ -338,6 +338,7 @@ cat > vdr.macros <<EOF
     PLUGINLIBDIR=%%{_vdr_plugin_dir}				\\\\\\
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
+    LOCALEDIR=locale						\\\\\\
     DVBDIR=%%{_prefix}						\\\\\\
     VDRDIR=%{_includedir}/vdr					\\\\\\
     VDRVERSION=%%{vdr_version}					\\\\\\
