@@ -50,6 +50,7 @@ Source6:	vdr-sky.sysconfig
 Source7:	vdr-README.mdv
 
 Patch1:		vdr-translationerror-only-when-debug.patch
+Patch2:		vdr-maxdevices.diff
 Patch3:		vdr-1.4.2-getdevice.diff
 Patch4:		vdr-1.4.6-rsvps.patch
 
@@ -250,6 +251,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %setup -q
 
 %patch1 -p1
+%patch2 -p1
 %patch3 -p1
 %patch4 -p1
 %patch11 -p1
