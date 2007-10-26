@@ -57,7 +57,8 @@ Patch4:		vdr-1.4.6-rsvps.patch
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
 # Updated with each version, gunzipped
-Patch11:	vdr-1.4.6-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff
+# Note that they are usually just rediffed, no actual changes
+Patch11:	vdr-1.4.7-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff
 Patch12:	vdr-1.4.5-liemikuutio-%liemikuutio_version.diff
 
 # From http://e-tobi.net/ Debian repository
