@@ -137,9 +137,9 @@ Requires(post):	ccp >= 0.4.1
 Requires:	ccp >= 0.4.1
 
 %description
-VDR (Video Disc Recorder) is a very powerful and customizable PVR
-software. One of the most common usage cases of VDR is as a digital
-set-top-box with the picture displayed in a television set. VDR can
+VDR (Video Disk Recorder) is a very powerful and customizable PVR
+program. One of the most common usage cases of VDR is as a digital
+set-top-box with the picture displayed on a television set. VDR can
 also be used on desktop or even without any video output devices.
 There are also lots of different plugins available to extend VDR's
 capabilities.
