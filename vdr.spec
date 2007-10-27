@@ -3,7 +3,7 @@
 %define version	1.4.7
 %define maintpatch 0
 %define apiversion 1.4.5
-%define rel	6
+%define rel	7
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
