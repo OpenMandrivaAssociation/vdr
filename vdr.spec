@@ -107,6 +107,9 @@ Patch51:	http://toms-cafe.de/vdr/download/vdr-submenu-%submenu_version-1.3.38+.d
 Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.3.45.mod.diff
 Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.4.0.diff
 
+# From xineliboutput
+Patch56:	vdr-1.4.6-Smooth_FastForward.patch
+
 # From pin
 # Context modified to resolve conflicts
 # Added check for pin plugin existence before showing pin-specific options
@@ -280,6 +283,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch51 -p1
 %patch52 -p1
 %patch53 -p1
+%patch56 -p1
 %patch58 -p2
 %patch60 -p1
 %patch63 -p1
