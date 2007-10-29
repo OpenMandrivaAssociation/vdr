@@ -3,11 +3,11 @@
 %define version	1.4.7
 %define maintpatch 0
 %define apiversion 1.4.5
-%define rel	7
+%define rel	8
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 4
+%define vdr_sub_abi 5
 %define vdr_abi	%{apiversion}_%{_lib}_abi_%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
@@ -49,6 +49,8 @@ Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
 Source7:	vdr-README.mdv
 
+# Patches last checked for updates: 2007/10/29
+
 Patch1:		vdr-translationerror-only-when-debug.patch
 Patch2:		vdr-maxdevices.diff
 Patch3:		vdr-1.4.2-getdevice.diff
@@ -60,6 +62,10 @@ Patch4:		vdr-1.4.6-rsvps.patch
 # Note that they are usually just rediffed, no actual changes
 Patch11:	vdr-1.4.7-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff
 Patch12:	vdr-1.4.5-liemikuutio-%liemikuutio_version.diff
+
+# From iptv
+Patch16:	vdr-1.4.7-closefilter.patch
+Patch17:	vdr-1.4.7-pluginparam.patch
 
 # From http://e-tobi.net/ Debian repository
 Patch20:	vdr-1.4.0-analogtv.patch
@@ -257,6 +263,8 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch4 -p1
 %patch11 -p1
 %patch12 -p1
+%patch16 -p1
+%patch17 -p1
 %patch20 -p1
 %patch21 -p1
 %patch22 -p1
@@ -440,7 +448,8 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 
 %build
 %make
-%make plugins CFLAGS="%vdr_plugin_flags" CXXFLAGS="%vdr_plugin_flags"
+# [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
+LC_ALL=C %make plugins CFLAGS="%vdr_plugin_flags" CXXFLAGS="%vdr_plugin_flags"
 
 %install
 rm -rf %{buildroot}
