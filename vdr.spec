@@ -37,7 +37,7 @@ Name:		%{name}
 Version:	%{version}
 Release:	%mkrel %rel
 Group:		Video
-License:	GPL
+License:	GPLv2+
 URL:		http://www.cadsoft.de/vdr/
 Source:		ftp://ftp.cadsoft.de/vdr/%{name}-%{version}.tar.bz2
 
