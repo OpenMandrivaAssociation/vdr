@@ -344,7 +344,6 @@ cat > vdr.macros <<EOF
 %%vdr_abi		%vdr_abi
 
 %%vdr_plugin_flags	%vdr_plugin_flags
-%%vdr_add_optflags	%%nil
 
 %%_vdr_plugin_dir	%{vdr_plugin_dir}
 %%_vdr_plugin_datadir	%{vdr_plugin_datadir}
@@ -359,8 +358,8 @@ cat > vdr.macros <<EOF
 
 %%vdr_plugin_build \\
     %%make all							\\\\\\
-    CFLAGS="%%vdr_plugin_flags %%vdr_add_optflags"		\\\\\\
-    CXXFLAGS="%%vdr_plugin_flags %%vdr_add_optflags"		\\\\\\
+    CFLAGS="\${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}"		\\\\\\
+    CXXFLAGS="\${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}"		\\\\\\
     PLUGINLIBDIR=%%{_vdr_plugin_dir}				\\\\\\
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
