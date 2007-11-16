@@ -7,7 +7,7 @@
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 5
+%define vdr_sub_abi 6
 %define vdr_abi	%{apiversion}_%{_lib}_abi_%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
@@ -125,6 +125,10 @@ Patch63:	vdr-1.4.x-sc7.diff
 
 # From epgsearch
 Patch65:	MainMenuHooks-v1_0.patch
+
+# http://phivdr.dyndns.org/vdr/.h264/
+# Conflicts resolved
+Patch67:	vdr-1.4.7-v2-h264.patch
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
@@ -288,6 +292,7 @@ This plugin shows how to add SVDRP support to a plugin.
 %patch60 -p1
 %patch63 -p1
 %patch65 -p1
+%patch67 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
