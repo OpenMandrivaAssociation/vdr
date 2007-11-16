@@ -2,13 +2,14 @@
 %define name	vdr
 %define version	1.4.7
 %define maintpatch 0
-%define apiversion 1.4.5
+%define oapiversion 1.4.5
 %define rel	8
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %apiversion is raised
-%define vdr_sub_abi 6
-%define vdr_abi	%{apiversion}_%{_lib}_abi_%{vdr_sub_abi}
+%define vdr_sub_abi	6
+%define vdr_abi		%{oapiversion}_%{_lib}_abi_%{vdr_sub_abi}
+%define apiversion	%{oapiversion}.%{vdr_sub_abi}
 
 %define subtitles_version	0.5.0
 %define ttxtsubs_version	0.0.5
@@ -301,6 +302,7 @@ done)
 %endif
 
 sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\0 \" (%version-%release)\"/" vdr.c
+sed -ri '/define APIVERSION/s/^(.*")%{oapiversion}(".*)$/\1%{apiversion}\2/' config.h
 
 # check that the %apiversion is set correctly
 [ $(sed -rn '/define APIVERSION/s/^.*"(.*)".*$/\1/p' config.h) == %apiversion ]
