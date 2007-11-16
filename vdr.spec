@@ -33,6 +33,12 @@
 
 %define vdr_plugin_flags	%{optflags} -fPIC
 
+%if %{maintpatch}
+%define fullversion		%{version}-%{maintpatch}
+%else
+%define fullversion		%{version}
+%endif
+
 Summary:	Video Disk Recorder - PVR software
 Name:		%{name}
 Version:	%{version}
@@ -301,11 +307,13 @@ This plugin shows how to add SVDRP support to a plugin.
 done)
 %endif
 
-sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\0 \" (%version-%release)\"/" vdr.c
+sed -i "/isyslog(\"VDR version %%s started\", VDRVERSION);/s/VDRVERSION/\"%{fullversion} (%{version}-%{release})\"/" vdr.c
 sed -ri '/define APIVERSION/s/^(.*")%{oapiversion}(".*)$/\1%{apiversion}\2/' config.h
+sed -ri '/define VDRVERSION/s/^(.*")%{fullversion}(".*)$/\1%{version}-%{release}\2/' config.h
 
-# check that the %apiversion is set correctly
-[ $(sed -rn '/define APIVERSION/s/^.*"(.*)".*$/\1/p' config.h) == %apiversion ]
+# check that the macros are set correctly
+[ $(sed -rn '/define APIVERSION/s/^.*"(.*)".*$/\1/p' config.h) == "%apiversion" ]
+[ $(sed -rn '/define VDRVERSION/s/^.*"(.*)".*$/\1/p' config.h) == "%version-%release" ]
 
 cp -a %SOURCE3 shutdown.sh.example
 
@@ -330,11 +338,7 @@ EOF
 cat > vdr.macros <<EOF
 ## VDR plugin macros ##
 
-%if %maintpatch
-%%vdr_version		%version-%maintpatch
-%else
-%%vdr_version		%version
-%endif
+%%vdr_version		%{version}-%{release}
 %%vdr_rpmversion	%version
 %%vdr_apiversion	%apiversion
 %%vdr_abi		%vdr_abi
