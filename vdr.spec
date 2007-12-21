@@ -144,6 +144,7 @@ Patch67:	vdr-1.4.7-v2-h264.patch
 done)
 %endif
 
+BuildRoot:	%{_tmppath}/%{name}-buildroot
 BuildRequires:	libcap-devel libjpeg-devel ncurses-devel
 Requires(post): rpm-helper
 Requires(preun): rpm-helper
