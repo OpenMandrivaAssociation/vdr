@@ -404,9 +404,17 @@ vdr_plugin_params_do() { \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
 			gotparam="\${gotparam//\$gotvar/'\\\\$\$gotvar'}" \\
 			echo "[ -n \\\\"\\\\$\$gotvar\\\\" ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
+		elif echo "\$gotparam" | grep -q "MULTIPLE_PARAMS"; then \\
+			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
+			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
+			echo "local gotparam=\\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
+			echo "echo \\\\"\\\\$\$gotvar\\\\" | xargs -n1 | while read subvar &&" >> %%1.mandriva-params \\
+			echo "	[ -n \\\\"\\\\\$subvar\\\\" ]; do" >> %%1.mandriva-params \\
+			echo "	echo \\\\"\\\\\${gotparam//MULTIPLE_PARAMS/'\\\\\$subvar'}\\\\"" >> %%1.mandriva-params \\
+			echo "done" >> %%1.mandriva-params \\
 		else \\
 			[ -z "\$gotdefault" ] && gotdefault=no \\
-			echo "\$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
+			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
 			echo "[ \\\\"\\\\$\$gotvar\\\\" == yes ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
 		fi \\
