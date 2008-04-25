@@ -330,7 +330,7 @@ See UPDATE-1.6.0 for a summary of changes.
 EOF
 
 cat > Make.config <<EOF
-CFLAGS   = %optflags -I%{_includedir}/ncursesw
+CFLAGS   = %optflags
 CXXFLAGS = \$(CFLAGS)
 
 BINDIR   = %{_bindir}
@@ -505,7 +505,7 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 %build
 %make
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-LC_ALL=C %make plugins CFLAGS="%vdr_plugin_flags" CXXFLAGS="%vdr_plugin_flags"
+LC_ALL=C %make plugins CFLAGS="%vdr_plugin_flags -I%{_includedir}/ncursesw" CXXFLAGS="%vdr_plugin_flags -I%{_includedir}/ncursesw"
 
 # fix locales
 for dir in locale/*_*; do
