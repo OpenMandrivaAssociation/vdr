@@ -323,8 +323,14 @@ mv i18n-to-gettext.pl i18n-to-gettext/
 # Comment default examples out
 perl -pi -e "s/^S/# S/" diseqc.conf
 
+cat > README.1.6.0.upgrade.urpmi <<EOF
+VDR 1.6 series is a major upgrade and you may need to make configuration
+changes to adapt for this new series.
+See UPDATE-1.6.0 for a summary of changes.
+EOF
+
 cat > Make.config <<EOF
-CFLAGS   = %optflags
+CFLAGS   = %optflags -I%{_includedir}/ncursesw
 CXXFLAGS = \$(CFLAGS)
 
 BINDIR   = %{_bindir}
