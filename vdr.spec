@@ -1,19 +1,18 @@
 
 %define name	vdr
-%define version	1.4.7
-%define maintpatch 0
-%define oapiversion 1.4.5
-%define rel	9
+%define version	1.6.0
+%define maintpatch 1
+%define oapiversion 1.6.0
+%define rel	1
 
 # Increased when ABI compatibility is broken by patches
-# Reset to 1 when %apiversion is raised
-%define vdr_sub_abi	6
+# Reset to 1 when %oapiversion is raised
+%define vdr_sub_abi	1
 %define vdr_abi		%{oapiversion}_%{_lib}_abi_%{vdr_sub_abi}
 %define apiversion	%{oapiversion}.%{vdr_sub_abi}
 
-%define subtitles_version	0.5.0
 %define ttxtsubs_version	0.0.5
-%define liemikuutio_version 	1.13
+%define liemikuutio_version 	1.19
 %define jumpplay_version	0.9
 %define submenu_version		0.7
 %define timerinfo_version	0.4
@@ -39,7 +38,7 @@
 %define fullversion		%{version}
 %endif
 
-Summary:	Video Disk Recorder - PVR software
+Summary:	Video Disk Recorder - PVR suite
 Name:		%{name}
 Version:	%{version}
 Release:	%mkrel %rel
@@ -56,87 +55,61 @@ Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
 Source7:	vdr-README.mdv
 
-# Patches last checked for updates: 2007/10/29
+# Patches last checked for updates: 2008/04/01
 
-Patch1:		vdr-translationerror-only-when-debug.patch
-Patch2:		vdr-maxdevices.diff
-Patch3:		vdr-1.4.2-getdevice.diff
-Patch4:		vdr-1.4.6-rsvps.patch
+Patch4:		vdr-1.6.0-rsvps.patch
 Patch5:		vdr-1.4.7-vdrversion.patch
+# CanHandleOver2BitSubtitles() hack:
+Patch6:		vdr-1.6.0-dxr3.patch
+# Use monospace as default monospace font,
+# sans serif as default large font:
+Patch7:		vdr-1.6.0-default-fonts-mdv.patch
+# Show more font aliases:
+Patch8:		vdr-1.6.0-show-more-aliasfonts.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
 # Updated with each version, gunzipped
 # Note that they are usually just rediffed, no actual changes
-Patch11:	vdr-1.4.7-subtitles-%subtitles_version-and-ttxtsubs-%ttxtsubs_version.diff
-Patch12:	vdr-1.4.5-liemikuutio-%liemikuutio_version.diff
+Patch11:	vdr-1.6.0-ttxtsubs-%ttxtsubs_version.diff
+Patch12:	vdr-1.6.0-liemikuutio-%liemikuutio_version.diff
+Patch13:	vdr-1.6.0-cutter-marks.diff
+Patch14:	vdr-1.6.0-parentalrating-content.diff
+Patch15:	vdr-1.6.0-thread-name.diff
 
 # From iptv
-Patch16:	vdr-1.4.7-closefilter.patch
-Patch17:	vdr-1.4.7-pluginparam.patch
+Patch17:	vdr-1.6.0-pluginparam.patch
 
 # From http://e-tobi.net/ Debian repository
 Patch20:	vdr-1.4.0-analogtv.patch
-Patch21:	vdr-sort-options.patch
-Patch22:	vdr-1.4.1-dd-record-option.patch
-
-# From http://www.hoochvdr.info/modules.php?name=Forums&file=index
-# http://www.hoochvdr.info/files/vdr-%version-core-yaepg.diff
-Patch30:	http://www.hoochvdr.info/files/vdr-1.4.0-core-yaepg.diff
-
-# From graphtft
-Patch32:	vdr-1.4.3.plain-menu-column.diff
-
-# From http://www.lötzke.de/dvb/VDR_LNB_sharing_patch/
-# Context slightly modified to resolve conflicts
-Patch34:	configurableLNBshare-VDR_1.4.3.mod.patch
+Patch21:	vdr-1.6.0-sort-options.patch
+Patch22:	vdr-1.6.0-dd-record-option.patch
+Patch23:	vdr-1.6.0-yaepg.patch
+Patch24:	vdr-1.6.0-menuorg.patch
+Patch25:	vdr-1.6.0-pin.patch
+Patch26:	vdr-1.6.0-graphtft.patch
+Patch27:	vdr-1.6.0-sourcecaps.patch
+Patch28:	vdr-1.6.0-noepg.patch
+Patch29:	vdr-1.6.0-reelchannelscan.patch
+Patch30:	vdr-1.6.0-pvrinput.patch
 
 # From VDR mailinglist
-# Context slightly modified to resolve conflicts
-Patch36:	SourceCaps-1.3.39.mod.patch
+Patch34:	vdr-1.6.0-ConfigurableLNBshare_1_5_10.diff
 
 # From rotor plugin
-Patch40:	vdr-1.3.45-Rotor.diff
-
-# From noepgmenu
-# Context slightly modified to resolve conflicts
-Patch42:	vdr-1.3.41-noepgmenu.mod.patch
-
-# From decruft
-Patch45:	vdr-1.3.20-SetGroupSep.diff
-
-# From reelchannelscan
-Patch47:	channelscan-vdr.patch
+Patch40:	vdr-1.5.5-rotor.diff
 
 # From http://toms-cafe.de/vdr/download/
-# Context slightly modified to resolve conflicts
-Patch50:	http://toms-cafe.de/vdr/download/vdr-jumpplay-%jumpplay_version-1.4.0.mod.diff
-Patch51:	http://toms-cafe.de/vdr/download/vdr-submenu-%submenu_version-1.3.38+.diff
-Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.3.45.mod.diff
-Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.4.0.diff
-
-# From xineliboutput
-Patch56:	vdr-1.4.6-Smooth_FastForward.patch
-
-# From pin
-# Context modified to resolve conflicts
-# Added check for pin plugin existence before showing pin-specific options
-# in timer screen.
-Patch58:	vdr-1.4.5-pin.mod.diff
-
-# Hooks that allow plugins to do stuff instead of unconditionally patching
-# the default VDR behaviour
-Patch60:	vdr-1.4.3-exthooks.patch
-
-# From sc
-Patch63:	vdr-1.4.x-sc7.diff
+Patch50:	http://toms-cafe.de/vdr/download/vdr-jumpplay-%jumpplay_version-1.5.7.diff
+Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.6.0.diff
+Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.6.0.diff
 
 # From epgsearch
 Patch65:	MainMenuHooks-v1_0.patch
 
-# http://phivdr.dyndns.org/vdr/.h264/
-# Conflicts resolved
-Patch67:	vdr-1.4.7-v2-h264.patch
+# From VDR mailinglist, Reinhard Nissl
+Patch67:	vdr-1.5.18-h264-syncearly-framespersec-audioindexer-fielddetection-speedup.diff
+Patch68:	vdr-1.5.18-addon-fix_nid_tid_channel_iterator.diff
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
@@ -145,21 +118,24 @@ done)
 %endif
 
 BuildRoot:	%{_tmppath}/%{name}-buildroot
-BuildRequires:	libcap-devel libjpeg-devel ncurses-devel
+BuildRequires:	libcap-devel
+BuildRequires:	libjpeg-devel
+BuildRequires:	libncursesw-devel
+BuildRequires:	fontconfig-devel
+BuildRequires:	freetype2-devel
 Requires(post): rpm-helper
 Requires(preun): rpm-helper
 Requires(post):	vdr-common = %{version}
 Requires:	vdr-common = %{version}
 Provides:	vdr-abi = %{vdr_abi}
-Provides:	vdr-core-standard vdr-core-vanilla vdr-core-bigpatch
-Obsoletes:	vdr-core-standard vdr-core-vanilla vdr-core-bigpatch
+Obsoletes:	vdr-plugin-subtitles < 0.5.0-8
 Requires(post):	ccp >= 0.4.1
 # Plugins:
 Requires:	ccp >= 0.4.1
 
 %description
 VDR (Video Disk Recorder) is a very powerful and customizable PVR
-program. One of the most common usage cases of VDR is as a digital
+suite. One of the most common usage cases of VDR is as a digital
 set-top-box with the picture displayed on a television set. VDR can
 also be used on desktop or even without any video output devices.
 There are also lots of different plugins available to extend VDR's
@@ -168,8 +144,9 @@ capabilities.
 See http://www.linuxtv.org/vdrwiki/ for more information.
 
 VDR in this package is patched with the patches known as
-liemikuutio, sort-options, dd-record-option, configurableLNBshare,
-sourcecaps, jumpplay, submenu, timer-info, cmdsubmenu, and with
+liemikuutio, cutter-marks, parentalrating-content, thread-name,
+menuorg, sort-options, dd-record-option, configurableLNBshare,
+sourcecaps, jumpplay, timer-info, cmdsubmenu, h264, and with
 patches which are required by various plugins.
 %if %maintpatch
 This build is additionally patched to the maintenance release
@@ -183,8 +160,8 @@ Requires(pre):	rpm-helper
 Requires(postun): rpm-helper
 
 %description common
-VDR (Video Disc Recorder) is a very powerful and customizable PVR
-software.
+VDR (Video Disk Recorder) is a very powerful and customizable PVR
+suite.
 
 This package contains the default "vdr" user required by VDR and
 some other related tools.
@@ -192,6 +169,7 @@ some other related tools.
 %package devel
 Summary:	VDR development headers
 Group:		Development/C++
+Requires:	gettext
 
 %description devel
 This package contains the headers that are needed to build
@@ -269,39 +247,57 @@ Requires:	vdr-abi = %vdr_abi
 %description plugin-svdrpdemo
 This plugin shows how to add SVDRP support to a plugin.
 
+%package plugin-pictures
+Summary:	VDR plugin: A simple picture viewer
+Group:		Video
+Requires:	vdr-abi = %vdr_abi
+
+%description plugin-pictures
+The 'pictures' plugin implements a simple picture viewer.
+
+There is already an 'image' plugin out there which has a lot more
+functionality than this one, but it's way too complex for my taste,
+and also converts the image files on-the-fly, which makes it slow
+on slow hardware.
+
+This plugin assumes that the pictures have already been converted to
+MPEG frames (with the 'pic2mpg' script that comes with this archive),
+and doesn't implement any fancy features like zooming, panning or
+tiled previews. It's just a very simple viewer.
+
 %prep
 %setup -q
 
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
 %patch4 -p1
 %patch5 -p1
+%patch7 -p1
+%patch8 -p1
 %patch11 -p1
 %patch12 -p1
-%patch16 -p1
+%patch13 -p1
+%patch14 -p1
+%patch15 -p1
 %patch17 -p1
 %patch20 -p1
 %patch21 -p1
 %patch22 -p1
+%patch23 -p1
+%patch24 -p1
+%patch65 -p1
+%patch25 -p1
+%patch26 -p1
+%patch27 -p1
+%patch28 -p1
+%patch29 -p1
 %patch30 -p1
-%patch32 -p2
 %patch34 -p1
-%patch36 -p1
 %patch40 -p1
-%patch42 -p1
-%patch45 -p1
-%patch47 -p1
 %patch50 -p1
-%patch51 -p1
 %patch52 -p1
 %patch53 -p1
-%patch56 -p1
-%patch58 -p2
-%patch60 -p1
-%patch63 -p1
-%patch65 -p1
 %patch67 -p1
+%patch68 -p0
+%patch6 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
@@ -321,15 +317,19 @@ cp -a %SOURCE3 shutdown.sh.example
 
 cat %SOURCE7 | sed 's,@vdr_plugin_dir@,%{vdr_plugin_dir},' > README.mdv
 
+mkdir i18n-to-gettext
+mv i18n-to-gettext.pl i18n-to-gettext/
+
 # Comment default examples out
 perl -pi -e "s/^S/# S/" diseqc.conf
 
 cat > Make.config <<EOF
 CFLAGS   = %optflags
-CXXFLAGS = %optflags
+CXXFLAGS = \$(CFLAGS)
 
 BINDIR   = %{_bindir}
 MANDIR   = %{_mandir}
+LOCDIR   = %{_datadir}/locale
 
 PLUGINLIBDIR = %{vdr_plugin_dir}
 VIDEODIR = %{vdr_videodir}
@@ -358,6 +358,23 @@ cat > vdr.macros <<EOF
 %%_vdr_themedir		%{vdr_themedir}
 %%_vdr_epgimagesdir	%{vdr_epgimagesdir}
 
+%%vdr_plugin_prep \\
+for file in po/*.po; do \\
+	# drop empty translations \\
+	grep -Eq 'msgstr ".+"' \$file || rm -f \$file \\
+done \\
+set +x \\
+echo Silent renaming of locales \\
+for file in po/*_*.po; do \\
+	[ -f \$file ] || continue \\
+	[ \$(basename \$file .po) == "zh_CN" ] && continue \\
+	# VDR wrongly uses the _COUNTRY identification always \\
+	rm -rf \${file%_*.po}.po \\
+	mv \$file \${file%_*.po}.po \\
+done \\
+set -x \\
+touch vdr_plugin_prep.done
+
 %%vdr_plugin_build \\
     %%make all							\\\\\\
     CFLAGS="\${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}"		\\\\\\
@@ -366,6 +383,7 @@ cat > vdr.macros <<EOF
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
     LOCALEDIR=locale						\\\\\\
+    VDRLOCALE='""'						\\\\\\
     DVBDIR=%%{_prefix}						\\\\\\
     VDRDIR=%{_includedir}/vdr					\\\\\\
     VDRVERSION=%%{vdr_version}					\\\\\\
@@ -376,11 +394,19 @@ cat > vdr.macros <<EOF
         %__awk -F'.' '{ print \$1*10000+\$2*100+\$3 }')
 
 %%vdr_plugin_install \\
+    if ! [ -e vdr_plugin_prep.done ]; then \\
+        echo "Missing %%%%vdr_plugin_prep, aborting!" \\
+        exit 1 \\
+    fi \\
     rename .so.%%{vdr_version} .so.%%{vdr_apiversion} *.so.%%{vdr_version} &>/dev/null || : \\
     for f in libvdr-*.so.%%{vdr_apiversion}; do \\
         install -D -m755 \$f %%{buildroot}%%{_vdr_plugin_dir}/\$f \\
+        install -d -m755 %%{buildroot}%%{_datadir} \\
+        [ -d locale ] && cp -r locale %%{buildroot}%%{_datadir} \\
         NAME=\$(echo \$f | perl -pe "s/^libvdr-(.*).so.%%{vdr_apiversion}/\\\\1/") \\
         echo %%{_vdr_plugin_dir}/\$f > \$NAME.vdr \\
+        %%find_lang vdr-\$NAME \\
+        cat vdr-\$NAME.lang >> \$NAME.vdr \\
         if [ -f "\$NAME.mandriva-params" ]; then \\
             install -D -m644 \$NAME.mandriva-defaults %%{buildroot}%%{_vdr_plugin_paramdir}/\$NAME.defaults \\
             install -D -m644 \$NAME.mandriva-params %%{buildroot}%%{_vdr_plugin_paramdir}/\$NAME.params \\
@@ -429,9 +455,7 @@ vdr_plugin_params_do() { \\
 	echo "# Do not modify this file, use %%{_sysconfdir}/sysconfig/%{name}-%%1 instead" > %%1.mandriva-defaults \\
 	echo "# Do not modify this file, use %%{_sysconfdir}/sysconfig/%{name}-%%1 instead" > %%1.mandriva-params \\
 	echo -e "# VDR plugin %%1 configuration\\\\n" > %%1.mandriva-sysconfig \\
-	I=0 \\
 	while read INPUT; do \\
-		[ \$I == 0 ] && INPUT="\${INPUT#VDR_PLUGIN_PARAMS_BEGIN}" && I=1 \\
 		if echo "\$INPUT" | grep -q '^#'; then \\
 			[ -n "\$gotvar" ] && [ -n "\$gotparam" ] && vdr_plugin_params_handle \\
 			echo "\$INPUT" >> %%1.mandriva-sysconfig \\
@@ -454,12 +478,14 @@ vdr_plugin_params_do() { \\
 	vdr_plugin_params_handle \\
 } \\
 vdr_plugin_params_do <<VDR_PLUGIN_PARAMS_EOF \\
-VDR_PLUGIN_PARAMS_BEGIN
+%%nil
 
 %%vdr_plugin_params_end VDR_PLUGIN_PARAMS_EOF
 
-%%vdr_plugin_post() if [ "\$1" = "1" ] && [ -e %{_initrddir}/%{name} ]; then /sbin/service vdr plugin_install %%1; fi
-%%vdr_plugin_postun() if [ -e %{_initrddir}/%{name} ]; then if [ "\$1" = "0" ]; then /sbin/service vdr plugin_remove %%1; else /sbin/service vdr plugin_upgrade %%1; fi; fi
+%%vdr_plugin_post() if [ "\$1" = "1" ] && [ -e %{_initrddir}/%{name} ]; then /sbin/service vdr plugin_install %%1; fi \\
+%%nil
+%%vdr_plugin_postun() if [ -e %{_initrddir}/%{name} ]; then if [ "\$1" = "0" ]; then /sbin/service vdr plugin_remove %%1; else /sbin/service vdr plugin_upgrade %%1; fi; fi \\
+%%nil
 
 EOF
 
@@ -474,6 +500,14 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 %make
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
 LC_ALL=C %make plugins CFLAGS="%vdr_plugin_flags" CXXFLAGS="%vdr_plugin_flags"
+
+# fix locales
+for dir in locale/*_*; do
+	[ $(basename $dir) == "zh_CN" ] && continue
+	# VDR wrongly uses the _COUNTRY identification always
+	rm -rf ${dir%_*}
+	mv $dir ${dir%_*}
+done
 
 %install
 rm -rf %{buildroot}
@@ -525,8 +559,19 @@ install -d -m755 %{buildroot}%{_sysconfdir}/cron.daily
 install -m755 %SOURCE5 %{buildroot}%{_sysconfdir}/cron.daily/getskyepg
 install -m644 %SOURCE6 %{buildroot}%{_sysconfdir}/sysconfig/%{name}-sky
 
+# pictures plugin
+install -m755 PLUGINS/src/pictures/pic2mpg %{buildroot}%{_bindir}
+
 # scripts
 install -m755 *.pl %{buildroot}%{_bindir}
+
+# locales
+cp -r locale %{buildroot}%{_datadir}/
+
+%find_lang vdr
+%find_lang vdr-hello
+%find_lang vdr-skincurses
+%find_lang vdr-pictures
 
 %clean
 rm -rf %{buildroot}
@@ -554,13 +599,14 @@ fi
 # post and postun
 %plugin_rpmscripts hello
 %plugin_rpmscripts osddemo
+%plugin_rpmscripts pictures
 %plugin_rpmscripts skincurses
 %plugin_rpmscripts sky
 %plugin_rpmscripts status
 %plugin_rpmscripts servicedemo
 %plugin_rpmscripts svdrpdemo
 
-%files
+%files -f vdr.lang
 %defattr(-,root,root)
 %doc HISTORY* INSTALL* MANUAL* CONTRIBUTORS* UPDATE* README*
 %doc shutdown.sh.example
@@ -592,11 +638,12 @@ fi
 
 %files devel
 %defattr(-,root,root)
+%doc i18n-to-gettext/i18n-to-gettext.pl
 %{_sysconfdir}/rpm/macros.d/vdr.macros
 %{_includedir}/vdr
 %{_includedir}/libsi
 
-%files plugin-hello
+%files plugin-hello -f vdr-hello.lang
 %defattr(-,root,root)
 %doc PLUGINS/src/hello/HISTORY
 %doc PLUGINS/src/hello/README
@@ -608,7 +655,14 @@ fi
 %doc PLUGINS/src/osddemo/README
 %{vdr_plugin_dir}/libvdr-osddemo.so.%{apiversion}
 
-%files plugin-skincurses
+%files plugin-pictures -f vdr-pictures.lang
+%defattr(-,root,root)
+%doc PLUGINS/src/pictures/HISTORY
+%doc PLUGINS/src/pictures/README
+%{_bindir}/pic2mpg
+%{vdr_plugin_dir}/libvdr-pictures.so.%{apiversion}
+
+%files plugin-skincurses -f vdr-skincurses.lang
 %defattr(-,root,root)
 %doc PLUGINS/src/skincurses/HISTORY
 %doc PLUGINS/src/skincurses/README
