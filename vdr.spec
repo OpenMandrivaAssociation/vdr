@@ -3,11 +3,11 @@
 %define version	1.6.0
 %define maintpatch 1
 %define oapiversion 1.6.0
-%define rel	1
+%define rel	2
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
-%define vdr_sub_abi	1
+%define vdr_sub_abi	2
 %define vdr_abi		%{oapiversion}_%{_lib}_abi_%{vdr_sub_abi}
 %define apiversion	%{oapiversion}.%{vdr_sub_abi}
 
@@ -66,6 +66,10 @@ Patch6:		vdr-1.6.0-dxr3.patch
 Patch7:		vdr-1.6.0-default-fonts-mdv.patch
 # Show more font aliases:
 Patch8:		vdr-1.6.0-show-more-aliasfonts.patch
+# Add options to disable use of device input or output:
+Patch9:		vdr-1.6.0-shared-devices.patch
+# For streamdev:
+Patch10:	vdr-1.6.0-intcamdevices.mod.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
@@ -272,6 +276,7 @@ tiled previews. It's just a very simple viewer.
 %patch5 -p1
 %patch7 -p1
 %patch8 -p1
+%patch9 -p1
 %patch11 -p1
 %patch12 -p1
 %patch13 -p1
@@ -298,6 +303,7 @@ tiled previews. It's just a very simple viewer.
 %patch67 -p1
 %patch68 -p0
 %patch6 -p1
+%patch10 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
