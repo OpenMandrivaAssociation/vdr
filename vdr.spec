@@ -358,6 +358,40 @@ CONFDIR = %{vdr_cfgdir}
 LIBDIR = .
 EOF
 
+cat > README.install.urpmi <<EOF
+VDR is an advanced PVR suite and configuring it may not be easy for the
+inexperienced. Please take a look at the provided documentation before
+trying to configure it.
+
+Note that VDR does not support output to X11 or framebuffer without
+additional plugins, such as xineliboutput or softdevice.
+
+VDR initscript is provided for your convenience. Instead of running vdr
+directly, you should use the vdr service.
+
+Mandriva VDR packages have the following filesystem layout:
+
+%{_sysconfdir}/sysconfig/vdr
+Mandriva VDR configuration file; the settings in this file are used to
+construct the VDR parameters.
+
+%{_sysconfdir}/sysconfig/vdr-PLUGINNAME
+Mandriva VDR plugin configuration files; the settings in these files are used
+to construct the parameters for VDR plugins.
+
+%vdr_videodir
+Default VDR recordings directory.
+
+%vdr_cfgdir
+Default VDR configuration directory.
+
+%vdr_chanlogodir
+Default channel logo directory; The channel logos are used by plugins that
+support them. The most compatible format is 64x48px 16-color xpm.
+
+For more information on VDR and its plugins, see http://linuxtv.org/vdrwiki/ .
+EOF
+
 ## TODO: move this out of .spec
 cat > vdr.macros <<EOF
 ## VDR plugin macros ##
