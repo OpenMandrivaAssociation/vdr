@@ -354,6 +354,7 @@ LOCDIR   = %{_datadir}/locale
 
 PLUGINLIBDIR = %{vdr_plugin_dir}
 VIDEODIR = %{vdr_videodir}
+CONFDIR = %{vdr_cfgdir}
 LIBDIR = .
 EOF
 
