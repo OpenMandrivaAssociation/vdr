@@ -23,11 +23,11 @@
 %define vdr_plugin_cfgdir	%{vdr_cfgdir}/plugins
 %define vdr_plugin_paramdir	%{vdr_datadir}/defaults
 %define vdr_plugin_cachedir	%{_var}/cache/%{name}
-%define vdr_videodir		%{_localstatedir}/%{name}/video
-%define vdr_cfgdir		%{_localstatedir}/%{name}/config
+%define vdr_videodir		%{_localstatedir}/lib/%{name}/video
+%define vdr_cfgdir		%{_localstatedir}/lib/%{name}/config
 %define	vdr_datadir		%{_datadir}/%{name}
 %define vdr_chanlogodir		%{vdr_datadir}/chanlogos
-%define vdr_themedir		%{_localstatedir}/%{name}/themes
+%define vdr_themedir		%{_localstatedir}/lib/%{name}/themes
 %define vdr_epgimagesdir	%{_var}/cache/%{name}/epgimages
 
 %define vdr_plugin_flags	%{optflags} -fPIC
@@ -633,7 +633,7 @@ cp -r locale %{buildroot}%{_datadir}/
 rm -rf %{buildroot}
 
 %pre common
-%_pre_useradd vdr %{_localstatedir}/%{name} /bin/nologin
+%_pre_useradd vdr %{_localstatedir}/lib/%{name} /bin/nologin
 %{_bindir}/gpasswd -a vdr video >/dev/null
 
 %post
@@ -690,7 +690,7 @@ fi
 
 %files common
 %defattr(-,root,root)
-%attr(-,vdr,vdr) %dir %{_localstatedir}/%{name}
+%attr(-,vdr,vdr) %dir %{_localstatedir}/lib/%{name}
 
 %files devel
 %defattr(-,root,root)
