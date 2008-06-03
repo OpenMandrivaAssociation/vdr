@@ -18,6 +18,9 @@
 %define timerinfo_version	0.4
 %define cmdsubmenu_version	0.7
 
+# backportability
+%define _localstatedir		%{_var}
+
 %define vdr_plugin_dir		%{_libdir}/%{name}
 %define vdr_plugin_datadir	%{vdr_datadir}
 %define vdr_plugin_cfgdir	%{vdr_cfgdir}/plugins
