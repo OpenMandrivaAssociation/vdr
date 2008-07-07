@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 1
 %define oapiversion 1.6.0
-%define rel	4
+%define rel	5
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
