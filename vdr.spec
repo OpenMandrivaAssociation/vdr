@@ -33,7 +33,7 @@
 %define vdr_themedir		%{_localstatedir}/lib/%{name}/themes
 %define vdr_epgimagesdir	%{_var}/cache/%{name}/epgimages
 
-%define vdr_plugin_flags	%{optflags} -fPIC
+%define vdr_plugin_flags	-fPIC
 
 %if %{maintpatch}
 %define fullversion		%{version}-%{maintpatch}
@@ -436,8 +436,8 @@ touch vdr_plugin_prep.done
 
 %%vdr_plugin_build \\
     %%make all							\\\\\\
-    CFLAGS="\${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}"		\\\\\\
-    CXXFLAGS="\${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}"		\\\\\\
+    CFLAGS="%%{optflags} \${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}" \\\\\\
+    CXXFLAGS="%%{optflags} \${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}" \\\\\\
     PLUGINLIBDIR=%%{_vdr_plugin_dir}				\\\\\\
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
@@ -558,7 +558,7 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 %build
 %make
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-LC_ALL=C %make plugins CFLAGS="%vdr_plugin_flags -I%{_includedir}/ncursesw" CXXFLAGS="%vdr_plugin_flags -I%{_includedir}/ncursesw"
+LC_ALL=C %make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw"
 
 # fix locales
 for dir in locale/*_*; do
