@@ -3,11 +3,11 @@
 %define version	1.6.0
 %define maintpatch 1
 %define oapiversion 1.6.0
-%define rel	5
+%define rel	6
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
-%define vdr_sub_abi	2
+%define vdr_sub_abi	3
 %define vdr_abi		%{oapiversion}_%{_lib}_abi_%{vdr_sub_abi}
 %define apiversion	%{oapiversion}.%{vdr_sub_abi}
 
