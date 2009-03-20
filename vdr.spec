@@ -60,10 +60,14 @@ Source7:	vdr-README.mdv
 
 # Patches last checked for updates: 2008/04/01
 
+# Drop DVB API version check, it is bumped arbitrarily:
+Patch0:		vdr-drop-dvbapi-check.patch
 # Configurable logident for multi-vdr systems:
 Patch1:		vdr-1.6.0-logident.patch
 # Make HasDecoder() return true even while in pmExtern playmode
 Patch2:		vdr-1.6.0-hasdecoder.patch
+# printf format warnings:
+Patch3:		vdr-printf-format.patch
 Patch4:		vdr-1.6.0-rsvps.patch
 Patch5:		vdr-1.6.0-vdrversion.patch
 # CanHandleOver2BitSubtitles() hack:
@@ -280,8 +284,10 @@ tiled previews. It's just a very simple viewer.
 %prep
 %setup -q
 
+%patch0 -p1
 %patch1 -p1
 %patch2 -p1
+%patch3 -p1
 %patch4 -p1
 %patch5 -p1
 %patch7 -p1
