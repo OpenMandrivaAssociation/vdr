@@ -1,22 +1,15 @@
 
 %define name	vdr
 %define version	1.6.0
-%define maintpatch 1
+%define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	6
+%define rel	7
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
-%define vdr_sub_abi	3
+%define vdr_sub_abi	4
 %define vdr_abi		%{oapiversion}_%{_lib}_abi_%{vdr_sub_abi}
 %define apiversion	%{oapiversion}.%{vdr_sub_abi}
-
-%define ttxtsubs_version	0.0.5
-%define liemikuutio_version 	1.24
-%define jumpplay_version	0.9
-%define submenu_version		0.7
-%define timerinfo_version	0.4
-%define cmdsubmenu_version	0.7
 
 # backportability
 %define _localstatedir		%{_var}
@@ -57,8 +50,9 @@ Source4:	vdr.sysconfig
 Source5:	vdr-sky.cron
 Source6:	vdr-sky.sysconfig
 Source7:	vdr-README.mdv
+Source8:	vdr-plugin-filetriggers.script
 
-# Patches last checked for updates: 2008/04/01
+# Patches last checked for updates: 2009/07/25
 
 # Drop DVB API version check, it is bumped arbitrarily:
 Patch0:		vdr-drop-dvbapi-check.patch
@@ -86,15 +80,19 @@ Patch10:	vdr-1.6.0-intcamdevices.mod.patch
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
 # Updated with each version, gunzipped
 # Note that they are usually just rediffed, no actual changes
-Patch11:	vdr-1.6.0-ttxtsubs-%ttxtsubs_version.diff
-Patch12:	vdr-1.6.0-liemikuutio-%liemikuutio_version.diff
+Patch11:	vdr-1.6.0-cap_sys_nice.patch
+Patch12:	vdr-1.6.0-liemikuutio-1.27.diff
 Patch13:	vdr-1.6.0-cutter-marks.diff
 Patch14:	vdr-1.6.0-parentalrating-content.diff
 Patch15:	vdr-1.6.0-thread-name.diff
 Patch16:	vdr-1.6.0-frontend-facilities.patch
+Patch19:	vdr-1.6.0-subtitles-button.patch
+Patch31:	vdr-1.6.0-hitk.patch
+Patch32:	vdr-1.6.0-ionice.patch
 
 # From iptv
 Patch17:	vdr-1.6.0-pluginparam.patch
+Patch33:	vdr-1.6.0-plugindev-disable-ca-updates.patch
 
 # From http://e-tobi.net/ Debian repository
 Patch20:	vdr-1.4.0-analogtv.patch
@@ -111,21 +109,30 @@ Patch30:	vdr-1.6.0-pvrinput.patch
 
 # From VDR mailinglist
 Patch34:	vdr-1.6.0-ConfigurableLNBshare_1_5_10.diff
+# fixes build with gcc4.4
+Patch35:	vdr-1.7.7-grab.diff
+# ditto
+Patch36:	vdr-1.6.0-const.diff
 
 # From rotor plugin
 Patch40:	vdr-1.5.5-rotor.diff
 
 # From http://toms-cafe.de/vdr/download/
-Patch50:	http://toms-cafe.de/vdr/download/vdr-jumpplay-%jumpplay_version-1.5.7.diff
-Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-%timerinfo_version-1.6.0.diff
-Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-%cmdsubmenu_version-1.6.0.diff
+Patch50:	http://toms-cafe.de/vdr/download/vdr-jumpplay-1.0-1.6.0.diff
+Patch52:	http://toms-cafe.de/vdr/download/vdr-timer-info-0.5-1.5.15.diff
+Patch53:	http://toms-cafe.de/vdr/download/vdr-cmdsubmenu-0.7-1.6.0.diff
 
 # From epgsearch
+Patch64:	vdr.epgsearch-exttimeredit-0.0.2.diff
 Patch65:	MainMenuHooks-v1_0.patch
+Patch66:	timercmd-0.1_1.6.0.diff
 
 # From VDR mailinglist, Reinhard Nissl
 Patch67:	vdr-1.5.18-h264-syncearly-framespersec-audioindexer-fielddetection-speedup.diff
 Patch68:	vdr-1.5.18-addon-fix_nid_tid_channel_iterator.diff
+
+# From ttxtsubs
+Patch70:	vdr-1.6.0-2-ttxtsubs.patch
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
@@ -293,7 +300,7 @@ tiled previews. It's just a very simple viewer.
 %patch7 -p1
 %patch8 -p1
 %patch9 -p1
-%patch11 -p1
+%patch70 -p1
 %patch12 -p1
 %patch13 -p1
 %patch14 -p1
@@ -321,6 +328,15 @@ tiled previews. It's just a very simple viewer.
 %patch68 -p0
 %patch6 -p1
 %patch10 -p1
+%patch11 -p1
+%patch19 -p1
+%patch31 -p1
+%patch32 -p1
+%patch33 -p1
+%patch64 -p1
+%patch66 -p1
+%patch35 -p0
+%patch36 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
@@ -409,7 +425,8 @@ cat > vdr.macros <<EOF
 %%vdr_apiversion	%apiversion
 %%vdr_abi		%vdr_abi
 
-%%vdr_plugin_flags	%vdr_plugin_flags
+%%vdr_plugin_flags	%%{optflags} %vdr_plugin_flags %%{vdr_plugin_ldflags} \${VDR_PLUGIN_EXTRA_FLAGS}
+%%vdr_plugin_ldflags	%%(echo "%%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
 
 %%_vdr_plugin_dir	%{vdr_plugin_dir}
 %%_vdr_plugin_datadir	%{vdr_plugin_datadir}
@@ -441,8 +458,9 @@ touch vdr_plugin_prep.done
 
 %%vdr_plugin_build \\
     %%make all							\\\\\\
-    CFLAGS="%%{optflags} \${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}" \\\\\\
-    CXXFLAGS="%%{optflags} \${VDR_PLUGIN_FLAGS:-%%vdr_plugin_flags}" \\\\\\
+    CFLAGS="%%{vdr_plugin_flags}"				\\\\\\
+    CXXFLAGS="%%{vdr_plugin_flags}"				\\\\\\
+    LDFLAGS="%%{vdr_plugin_ldflags}"				\\\\\\
     PLUGINLIBDIR=%%{_vdr_plugin_dir}				\\\\\\
     VIDEODIR=%%{_vdr_videodir}					\\\\\\
     LIBDIR=.							\\\\\\
@@ -546,10 +564,15 @@ vdr_plugin_params_do <<VDR_PLUGIN_PARAMS_EOF \\
 
 %%vdr_plugin_params_end VDR_PLUGIN_PARAMS_EOF
 
+%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+%%vdr_plugin_post() %%{nil}
+%%vdr_plugin_postun() %%{nil}
+%else
 %%vdr_plugin_post() if [ "\$1" = "1" ] && [ -e %{_initrddir}/%{name} ]; then /sbin/service vdr plugin_install %%1; fi \\
 %%nil
 %%vdr_plugin_postun() if [ -e %{_initrddir}/%{name} ]; then if [ "\$1" = "0" ]; then /sbin/service vdr plugin_remove %%1; else /sbin/service vdr plugin_upgrade %%1; fi; fi \\
 %%nil
+%endif
 
 EOF
 
@@ -632,6 +655,14 @@ install -m755 *.pl %{buildroot}%{_bindir}
 # locales
 cp -r locale %{buildroot}%{_datadir}/
 
+%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+# automatic plugin post and postun actions
+install -d -m755 %{buildroot}%{_var}/lib/rpm/filetriggers
+install -m755 %SOURCE8 %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.script
+echo "^.%{_vdr_plugin_dir}/libvdr-.*\.so\." > %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.filter
+sed -i 's,#FILETRIGGERS#,,' %{buildroot}%{_initrddir}/%{name}
+%endif
+
 %find_lang vdr
 %find_lang vdr-hello
 %find_lang vdr-skincurses
@@ -660,6 +691,7 @@ fi
 %postun common
 %_postun_userdel vdr
 
+%if %{mdkversion} < 200900 || %{mdkversion} == 200910
 # post and postun
 %plugin_rpmscripts hello
 %plugin_rpmscripts osddemo
@@ -669,6 +701,7 @@ fi
 %plugin_rpmscripts status
 %plugin_rpmscripts servicedemo
 %plugin_rpmscripts svdrpdemo
+%endif
 
 %files -f vdr.lang
 %defattr(-,root,root)
@@ -695,6 +728,10 @@ fi
 %{vdr_cfgdir}/themes
 %dir %{vdr_plugin_paramdir}
 %dir %{vdr_epgimagesdir}
+%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+%{_var}/lib/rpm/filetriggers/vdr-plugins.filter
+%{_var}/lib/rpm/filetriggers/vdr-plugins.script
+%endif
 
 %files common
 %defattr(-,root,root)
