@@ -587,7 +587,9 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 %make
 %define vdr_plugin_ldflags %(echo "%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-LC_ALL=C %make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
+# parallel make disabled, as of 2009-07-28 fails on klodia due to too many threads:
+# "libgomp: Thread creation failed: Resource temporarily unavailable"
+LC_ALL=C make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
 
 # fix locales
 for dir in locale/*_*; do
