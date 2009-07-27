@@ -369,7 +369,7 @@ See UPDATE-1.6.0 for a summary of changes.
 EOF
 
 cat > Make.config <<EOF
-CFLAGS   = %optflags
+CFLAGS   = %optflags %{?ldflags}
 CXXFLAGS = \$(CFLAGS)
 
 BINDIR   = %{_bindir}
@@ -585,8 +585,9 @@ if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr 
 
 %build
 %make
+%define vdr_plugin_ldflags %(echo "%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-LC_ALL=C %make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw"
+LC_ALL=C %make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
 
 # fix locales
 for dir in locale/*_*; do
