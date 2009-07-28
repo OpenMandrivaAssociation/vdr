@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	8
+%define rel	9
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -75,6 +75,8 @@ Patch8:		vdr-1.6.0-show-more-aliasfonts.patch
 Patch9:		vdr-1.6.0-shared-devices.patch
 # For streamdev:
 Patch10:	vdr-1.6.0-intcamdevices.mod.patch
+# warning: cannot pass objects of non-POD type ‘class cString’ through ‘...’; call will abort at runtime
+Patch18:	vdr-1.6.0-h264-non-pod-type.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
@@ -337,6 +339,7 @@ tiled previews. It's just a very simple viewer.
 %patch66 -p1
 %patch35 -p0
 %patch36 -p1
+%patch18 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
