@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	9
+%define rel	10
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -157,6 +157,10 @@ Obsoletes:	vdr-plugin-subtitles < 0.5.0-8
 Requires(post):	ccp >= 0.4.1
 # Plugins:
 Requires:	ccp >= 0.4.1
+%if %{mdkversion} == 200910
+# fixed filetriggers
+Requires(post):	rpm >= 1:4.6.0-2.2
+%endif
 
 %description
 VDR (Video Disk Recorder) is a very powerful and customizable PVR
@@ -567,7 +571,7 @@ vdr_plugin_params_do <<VDR_PLUGIN_PARAMS_EOF \\
 
 %%vdr_plugin_params_end VDR_PLUGIN_PARAMS_EOF
 
-%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+%if %{mdkversion} >= 200900
 %%vdr_plugin_post() %%{nil}
 %%vdr_plugin_postun() %%{nil}
 %else
@@ -661,7 +665,7 @@ install -m755 *.pl %{buildroot}%{_bindir}
 # locales
 cp -r locale %{buildroot}%{_datadir}/
 
-%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+%if %{mdkversion} >= 200900
 # automatic plugin post and postun actions
 install -d -m755 %{buildroot}%{_var}/lib/rpm/filetriggers
 install -m755 %SOURCE8 %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.script
@@ -697,7 +701,7 @@ fi
 %postun common
 %_postun_userdel vdr
 
-%if %{mdkversion} < 200900 || %{mdkversion} == 200910
+%if %{mdkversion} < 200900
 # post and postun
 %plugin_rpmscripts hello
 %plugin_rpmscripts osddemo
@@ -734,7 +738,7 @@ fi
 %{vdr_cfgdir}/themes
 %dir %{vdr_plugin_paramdir}
 %dir %{vdr_epgimagesdir}
-%if %{mdkversion} >= 200900 && %{mdkversion} != 200910
+%if %{mdkversion} >= 200900
 %{_var}/lib/rpm/filetriggers/vdr-plugins.filter
 %{_var}/lib/rpm/filetriggers/vdr-plugins.script
 %endif
