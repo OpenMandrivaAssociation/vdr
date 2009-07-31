@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	10
+%define rel	11
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -669,7 +669,7 @@ cp -r locale %{buildroot}%{_datadir}/
 # automatic plugin post and postun actions
 install -d -m755 %{buildroot}%{_var}/lib/rpm/filetriggers
 install -m755 %SOURCE8 %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.script
-echo "^.%{_vdr_plugin_dir}/libvdr-.*\.so\." > %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.filter
+echo "^.%{vdr_plugin_dir}/libvdr-.*\.so\." > %{buildroot}%{_var}/lib/rpm/filetriggers/vdr-plugins.filter
 sed -i 's,#FILETRIGGERS#,,' %{buildroot}%{_initrddir}/%{name}
 %endif
 
