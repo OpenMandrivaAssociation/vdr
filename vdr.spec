@@ -40,8 +40,8 @@ Version:	%{version}
 Release:	%mkrel %rel
 Group:		Video
 License:	GPLv2+
-URL:		http://www.cadsoft.de/vdr/
-Source:		ftp://ftp.cadsoft.de/vdr/%{name}-%{version}.tar.bz2
+URL:		http://www.tvdr.de/
+Source:		ftp://ftp.tvdr.de/vdr/%{name}-%{version}.tar.bz2
 
 Source1:	vdr.init
 Source2:	vdr-runvdr
