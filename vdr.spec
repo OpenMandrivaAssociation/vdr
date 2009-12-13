@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	14
+%define rel	15
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -387,6 +387,12 @@ PLUGINLIBDIR = %{vdr_plugin_dir}
 VIDEODIR = %{vdr_videodir}
 CONFDIR = %{vdr_cfgdir}
 LIBDIR = .
+
+%if %{mdkversion} >= 201000
+LIRC_DEVICE = %{_var}/run/lirc/lircd
+%else
+LIRC_DEVICE = /dev/lircd
+%endif
 EOF
 
 cat > README.install.urpmi <<EOF
