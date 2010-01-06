@@ -77,6 +77,8 @@ Patch9:		vdr-1.6.0-shared-devices.patch
 Patch10:	vdr-1.6.0-intcamdevices.mod.patch
 # warning: cannot pass objects of non-POD type ‘class cString’ through ‘...’; call will abort at runtime
 Patch18:	vdr-1.6.0-h264-non-pod-type.patch
+# fix overlapping strcpy in command-line parsing causing corruption:
+Patch37:	vdr-fix-overlapping-strcpy.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
@@ -344,6 +346,7 @@ tiled previews. It's just a very simple viewer.
 %patch35 -p0
 %patch36 -p1
 %patch18 -p1
+%patch37 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
