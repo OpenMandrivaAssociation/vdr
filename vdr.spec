@@ -432,7 +432,11 @@ support them. The most compatible format is 64x48px 16-color xpm.
 For more information on VDR and its plugins, see http://linuxtv.org/vdrwiki/ .
 EOF
 
-## TODO: move this out of .spec
+# The escaping gets a little messy:
+# \$	= plain $ in macros
+# \\	= multiline macro
+# \\\\	= plain \ in macros
+# these and their combinations are the only types of escaping present below:
 cat > vdr.macros <<EOF
 ## VDR plugin macros ##
 
@@ -526,13 +530,13 @@ vdr_plugin_params_do() { \\
 		if echo "\$gotparam" | grep -q "\$gotvar"; then \\
 			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
-			gotparam="\${gotparam//\$gotvar/'\\\\$\$gotvar'}" \\
-			echo "[ -n \\\\"\\\\$\$gotvar\\\\" ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
+			gotparam="\${gotparam//\$gotvar/'\\\\\$\$gotvar'}" \\
+			echo "[ -n \\\\"\\\\\$\$gotvar\\\\" ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
 		elif echo "\$gotparam" | grep -q "MULTIPLE_PARAMS"; then \\
 			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
 			echo "local gotparam=\\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
-			echo "echo \\\\"\\\\$\$gotvar\\\\" | xargs -n1 | while read subvar &&" >> %%1.mandriva-params \\
+			echo "echo \\\\"\\\\\$\$gotvar\\\\" | xargs -n1 | while read subvar &&" >> %%1.mandriva-params \\
 			echo "	[ -n \\\\"\\\\\$subvar\\\\" ]; do" >> %%1.mandriva-params \\
 			echo "	echo \\\\"\\\\\${gotparam//MULTIPLE_PARAMS/'\\\\\$subvar'}\\\\"" >> %%1.mandriva-params \\
 			echo "done" >> %%1.mandriva-params \\
@@ -540,7 +544,7 @@ vdr_plugin_params_do() { \\
 			[ -z "\$gotdefault" ] && gotdefault=no \\
 			echo "local \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-defaults \\
 			echo "# \$gotvar=\\\\"\$gotdefault\\\\"" >> %%1.mandriva-sysconfig \\
-			echo "[ \\\\"\\\\$\$gotvar\\\\" == yes ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
+			echo "[ \\\\"\\\\\$\$gotvar\\\\" == yes ] && echo \\\\"\$gotparam\\\\"" >> %%1.mandriva-params \\
 		fi \\
 		echo >> %%1.mandriva-sysconfig \\
 		gotvar= \\
