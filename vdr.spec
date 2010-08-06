@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	17
+%define rel	18
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -378,8 +378,9 @@ changes to adapt for this new series.
 See UPDATE-1.6.0 for a summary of changes.
 EOF
 
+%define _disable_ld_no_undefined 1
 cat > Make.config <<EOF
-CFLAGS   = %optflags %{?ldflags}
+CFLAGS   = -I/usr/include/ncursesw %optflags %vdr_plugin_flags %{?ldflags}
 CXXFLAGS = \$(CFLAGS)
 
 BINDIR   = %{_bindir}
