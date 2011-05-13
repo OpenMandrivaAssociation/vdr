@@ -3,7 +3,7 @@
 %define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	18
+%define rel	19
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -79,6 +79,12 @@ Patch10:	vdr-1.6.0-intcamdevices.mod.patch
 Patch18:	vdr-1.6.0-h264-non-pod-type.patch
 # fix overlapping strcpy in command-line parsing causing corruption:
 Patch37:	vdr-fix-overlapping-strcpy.patch
+# fix build with GCC 4.6
+Patch39:	vdr-gcc4.6.patch
+
+# From upstream
+# Switch from V4L1 to V4L2
+Patch38:	vdr-adapt-to-v4l2.patch
 
 # From http://users.tkk.fi/~rahrenbe/vdr/
 # and http://www.saunalahti.fi/~rahrenbe/vdr/patches/
@@ -347,6 +353,8 @@ tiled previews. It's just a very simple viewer.
 %patch36 -p1
 %patch18 -p1
 %patch37 -p1
+%patch38 -p1
+%patch39 -p1
 
 %if %maintpatch
 %(for n in {1..%maintpatch}; do
