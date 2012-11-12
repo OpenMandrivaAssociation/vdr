@@ -1,0 +1,14 @@
+diff -Nru vdr-1.6.0-vanilla/vdr.c vdr-1.6.0-cap_sys_nice/vdr.c
+--- vdr-1.6.0-vanilla/vdr.c	2008-07-14 01:48:55.000000000 +0300
++++ vdr-1.6.0-cap_sys_nice/vdr.c	2008-08-21 21:09:22.000000000 +0300
+@@ -114,8 +114,8 @@
+ 
+ static bool SetCapSysTime(void)
+ {
+-  // drop all capabilities except cap_sys_time
+-  cap_t caps = cap_from_text("= cap_sys_time=ep");
++  // drop all capabilities except cap_sys_nice and cap_sys_time
++  cap_t caps = cap_from_text("= cap_sys_nice,cap_sys_time=ep");
+   if (!caps) {
+      fprintf(stderr, "vdr: cap_from_text failed: %s\n", strerror(errno));
+      return false;

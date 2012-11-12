@@ -1,0 +1,15 @@
+Index: vdr-1.6.0/dvbdevice.h
+===================================================================
+--- vdr-1.6.0/dvbdevice.h
++++ vdr-1.6.0/dvbdevice.h	2009-03-21 00:06:35.000000000 +0200
+@@ -15,10 +15,6 @@
+ #include "device.h"
+ #include "dvbspu.h"
+ 
+-#if DVB_API_VERSION != 3
+-#error VDR requires Linux DVB driver API version 3!
+-#endif
+-
+ #define MAXDVBDEVICES  8
+ 
+ class cDvbTuner;

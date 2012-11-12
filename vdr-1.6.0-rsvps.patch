@@ -1,0 +1,49 @@
+Index: vdr-1.6.0/config.c
+===================================================================
+--- vdr-1.6.0/config.c
++++ vdr-1.6.0/config.c	2008-04-15 14:48:30.000000000 +0300
+@@ -255,6 +255,7 @@
+   UseSubtitle = 1;
+   UseVps = 0;
+   VpsMargin = 120;
++  RsVpsFallback = 0;
+   RecordingDirs = 1;
+   VideoDisplayFormat = 1;
+   VideoFormat = 0;
+Index: vdr-1.6.0/config.h
+===================================================================
+--- vdr-1.6.0/config.h
++++ vdr-1.6.0/config.h	2008-04-15 14:48:30.000000000 +0300
+@@ -237,6 +237,7 @@
+   int UseSubtitle;
+   int UseVps;
+   int VpsMargin;
++  int RsVpsFallback;
+   int RecordingDirs;
+   int VideoDisplayFormat;
+   int VideoFormat;
+Index: vdr-1.6.0/menu.c
+===================================================================
+--- vdr-1.6.0/menu.c
++++ vdr-1.6.0/menu.c	2008-04-15 14:48:30.000000000 +0300
+@@ -2753,6 +2753,7 @@
+   Add(new cMenuEditBoolItem(tr("Setup.Recording$Use episode name"),          &data.UseSubtitle));
+   Add(new cMenuEditBoolItem(tr("Setup.Recording$Use VPS"),                   &data.UseVps));
+   Add(new cMenuEditIntItem( tr("Setup.Recording$VPS margin (s)"),            &data.VpsMargin, 0));
++  Add(new cMenuEditBoolItem(tr("Setup.Recording$Use running status as VPS fallback"), &data.RsVpsFallback));
+   Add(new cMenuEditBoolItem(tr("Setup.Recording$Mark instant recording"),    &data.MarkInstantRecord));
+   Add(new cMenuEditStrItem( tr("Setup.Recording$Name instant recording"),     data.NameInstantRecord, sizeof(data.NameInstantRecord)));
+   Add(new cMenuEditIntItem( tr("Setup.Recording$Instant rec. time (min)"),   &data.InstantRecordTime, 1, MAXINSTANTRECTIME));
+Index: vdr-1.6.0/timers.c
+===================================================================
+--- vdr-1.6.0/timers.c
++++ vdr-1.6.0/timers.c	2008-04-15 14:48:30.000000000 +0300
+@@ -412,7 +412,7 @@
+      }
+ 
+   if (HasFlags(tfActive)) {
+-     if (HasFlags(tfVps) && event && event->Vps()) {
++     if (HasFlags(tfVps) && event && (Setup.RsVpsFallback || event->Vps())) {
+         if (Margin || !Directly) {
+            startTime = event->StartTime();
+            stopTime = event->EndTime();

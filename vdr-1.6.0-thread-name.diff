@@ -1,0 +1,26 @@
+diff -Nru vdr-1.6.0-vanilla/thread.c vdr-1.6.0-thread-name/thread.c
+--- vdr-1.6.0-vanilla/thread.c	2008-03-27 21:43:25.000000000 +0200
++++ vdr-1.6.0-thread-name/thread.c	2008-04-10 23:47:57.000000000 +0300
+@@ -17,6 +17,7 @@
+ #include <sys/syscall.h>
+ #include <sys/time.h>
+ #include <sys/wait.h>
++#include <sys/prctl.h>
+ #include <unistd.h>
+ #include "tools.h"
+ 
+@@ -239,8 +240,13 @@
+ void *cThread::StartThread(cThread *Thread)
+ {
+   Thread->childThreadId = ThreadId();
+-  if (Thread->description)
++  if (Thread->description) {
+      dsyslog("%s thread started (pid=%d, tid=%d)", Thread->description, getpid(), Thread->childThreadId);
++#ifdef PR_SET_NAME
++     if (prctl(PR_SET_NAME, Thread->description, 0, 0, 0) < 0)
++        esyslog("%s thread naming failed (pid=%d, tid=%d)", Thread->description, getpid(), Thread->childThreadId);
++#endif
++     }
+   Thread->Action();
+   if (Thread->description)
+      dsyslog("%s thread ended (pid=%d, tid=%d)", Thread->description, getpid(), Thread->childThreadId);

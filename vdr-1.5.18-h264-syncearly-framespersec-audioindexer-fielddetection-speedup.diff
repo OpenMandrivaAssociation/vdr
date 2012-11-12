@@ -1,0 +1,3935 @@
+diff -p -up vdr-1.6.0/channels.c.orig vdr-1.6.0/channels.c
+--- vdr-1.6.0/channels.c.orig	2009-07-25 21:22:30.648092648 +0300
++++ vdr-1.6.0/channels.c	2009-07-25 21:30:44.936094600 +0300
+@@ -179,7 +179,7 @@ cChannel::cChannel(void)
+   modification = CHANNELMOD_NONE;
+   schedule     = NULL;
+   linkChannels = NULL;
+-  refChannel   = NULL;
++  refChannels  = NULL;
+ }
+ 
+ cChannel::cChannel(const cChannel &Channel)
+@@ -191,28 +191,26 @@ cChannel::cChannel(const cChannel &Chann
+   pluginParam = NULL;
+   schedule     = NULL;
+   linkChannels = NULL;
+-  refChannel   = NULL;
++  refChannels  = NULL;
+   *this = Channel;
+ }
+ 
+ cChannel::~cChannel()
+ {
+-  delete linkChannels;
+-  linkChannels = NULL; // more than one channel can link to this one, so we need the following loop
+-  for (cChannel *Channel = Channels.First(); Channel; Channel = Channels.Next(Channel)) {
+-      if (Channel->linkChannels) {
+-         for (cLinkChannel *lc = Channel->linkChannels->First(); lc; lc = Channel->linkChannels->Next(lc)) {
+-             if (lc->Channel() == this) {
+-                Channel->linkChannels->Del(lc);
+-                break;
+-                }
+-             }
+-         if (Channel->linkChannels->Count() == 0) {
+-            delete Channel->linkChannels;
+-            Channel->linkChannels = NULL;
+-            }
+-         }
+-      }
++  if (linkChannels) {
++     // in all channels which we link to remove the reference to us
++     for (cLinkChannel *lc = linkChannels->First(); lc; lc = linkChannels->Next(lc))
++         lc->Channel()->DelRefChannel(this);
++     delete linkChannels;
++     linkChannels = NULL;
++     }
++  if (refChannels) {
++     // in all channels which reference us remove their link to us
++     for (cLinkChannel *lc = refChannels->First(); lc; lc = refChannels->Next(lc))
++         lc->Channel()->DelLinkChannel(this);
++     delete refChannels;
++     refChannels = NULL;
++     }
+   free(name);
+   free(shortName);
+   free(provider);
+@@ -589,7 +587,7 @@ void cChannel::SetLinkChannels(cLinkChan
+   q += sprintf(q, "linking channel %d from", Number());
+   if (linkChannels) {
+      for (cLinkChannel *lc = linkChannels->First(); lc; lc = linkChannels->Next(lc)) {
+-         lc->Channel()->SetRefChannel(NULL);
++         lc->Channel()->DelRefChannel(this);
+          q += sprintf(q, " %d", lc->Channel()->Number());
+          }
+      delete linkChannels;
+@@ -600,7 +598,7 @@ void cChannel::SetLinkChannels(cLinkChan
+   linkChannels = LinkChannels;
+   if (linkChannels) {
+      for (cLinkChannel *lc = linkChannels->First(); lc; lc = linkChannels->Next(lc)) {
+-         lc->Channel()->SetRefChannel(this);
++         lc->Channel()->AddRefChannel(this);
+          q += sprintf(q, " %d", lc->Channel()->Number());
+          //dsyslog("link %4d -> %4d: %s", Number(), lc->Channel()->Number(), lc->Channel()->Name());
+          }
+@@ -610,9 +608,39 @@ void cChannel::SetLinkChannels(cLinkChan
+   dsyslog("%s", buffer);
+ }
+ 
+-void cChannel::SetRefChannel(cChannel *RefChannel)
++void cChannel::AddRefChannel(cChannel *RefChannel)
++{
++  if (!refChannels)
++     refChannels = new cLinkChannels;
++  refChannels->Add(new cLinkChannel(RefChannel));
++}
++
++void cChannel::DelRefChannel(cChannel *RefChannel)
++{
++  for (cLinkChannel *lc = refChannels->First(); lc; lc = refChannels->Next(lc)) {
++      if (lc->Channel() == RefChannel) {
++         refChannels->Del(lc);
++         if (refChannels->Count() <= 0) {
++            delete refChannels;
++            refChannels = NULL;
++            }
++         return;
++         }
++      }
++}
++
++void cChannel::DelLinkChannel(cChannel *LinkChannel)
+ {
+-  refChannel = RefChannel;
++  for (cLinkChannel *lc = linkChannels->First(); lc; lc = linkChannels->Next(lc)) {
++      if (lc->Channel() == LinkChannel) {
++         linkChannels->Del(lc);
++         if (linkChannels->Count() <= 0) {
++            delete linkChannels;
++            linkChannels = NULL;
++            }
++         return;
++         }
++      }
+ }
+ 
+ static int PrintParameter(char *p, char Name, int Value)
+@@ -940,14 +968,72 @@ bool cChannels::Load(const char *FileNam
+   return false;
+ }
+ 
++void cChannels::ClearChannelHashes(void)
++{
++  channelsHashSid.Clear();
++  channelsHashNidTid.Clear();
++}
++
+ void cChannels::HashChannel(cChannel *Channel)
+ {
+   channelsHashSid.Add(Channel, Channel->Sid());
++  channelsHashNidTid.Add(Channel, HashKeyNidTid(Channel->Nid(), Channel->Tid()));
+ }
+ 
+ void cChannels::UnhashChannel(cChannel *Channel)
+ {
+   channelsHashSid.Del(Channel, Channel->Sid());
++  channelsHashNidTid.Del(Channel, HashKeyNidTid(Channel->Nid(), Channel->Tid()));
++}
++
++unsigned int cChannels::HashKeyNidTid(unsigned short Nid, unsigned short Tid)
++{
++  return Nid << 16 | Tid;
++}
++
++cIterator<cChannel> cChannels::GetChannelsBySourceNidTid(int Source, unsigned short Nid, unsigned short Tid)
++{
++  class cIteratorImplSourceNidTid : public cIteratorImpl {
++  private:
++    cList<cHashObject> *hashList;
++    cHashObject *current;
++    int source;
++    unsigned short nid;
++    unsigned short tid;
++    cChannel *FindMatchingChannel(bool reverse, bool reset = false) {
++      if (!hashList || (!current && !reset))
++         return NULL;
++      while (true) {
++            if (reset) {
++               reset = false;
++               current = reverse ? hashList->Last() : hashList->First();
++               }
++            else
++               current = reverse ? hashList->Prev(current) : hashList->Next(current);
++            if (!current)
++               break;
++            cChannel *Channel = (cChannel *)current->Object();
++            if (Channel->Source() == source && Channel->Nid() == nid && Channel->Tid() == tid)
++               return Channel;
++            }
++      return NULL;
++      }
++  public:
++    cIteratorImplSourceNidTid(cList<cHashObject> *HashList, int Source, unsigned short Nid, unsigned short Tid) {
++       hashList = HashList;
++       source = Source;
++       nid = Nid;
++       tid = Tid;
++       current = NULL;
++       }
++    virtual void *First(void) { return FindMatchingChannel(false, true); }
++    virtual void *Last(void)  { return FindMatchingChannel(true,  true); }
++    virtual void *Prev(void)  { return FindMatchingChannel(false); }
++    virtual void *Next(void)  { return FindMatchingChannel(true);  }
++    virtual void *Current(void) const  { return current ? (cChannel *)current->Object() : NULL; }
++    };
++
++  return cIterator<cChannel>(new cIteratorImplSourceNidTid(channelsHashNidTid.GetList(HashKeyNidTid(Nid, Tid)), Source, Nid, Tid));
+ }
+ 
+ int cChannels::GetNextGroup(int Idx)
+@@ -984,7 +1070,7 @@ int cChannels::GetPrevNormal(int Idx)
+ 
+ void cChannels::ReNumber(void)
+ {
+-  channelsHashSid.Clear();
++  ClearChannelHashes();
+   maxNumber = 0;
+   int Number = 1;
+   for (cChannel *channel = First(); channel; channel = Next(channel)) {
+diff -p -up vdr-1.6.0/channels.h.orig vdr-1.6.0/channels.h
+--- vdr-1.6.0/channels.h.orig	2009-07-25 21:22:30.353092289 +0300
++++ vdr-1.6.0/channels.h	2009-07-25 21:30:44.940845875 +0300
+@@ -148,9 +148,12 @@ private:
+   int modification;
+   mutable const cSchedule *schedule;
+   cLinkChannels *linkChannels;
+-  cChannel *refChannel;
++  cLinkChannels *refChannels;
+   cString ParametersToString(void) const;
+   bool StringToParameters(const char *s);
++  void AddRefChannel(cChannel *RefChannel);
++  void DelRefChannel(cChannel *RefChannel);
++  void DelLinkChannel(cChannel *RefChannel);
+ public:
+   cChannel(void);
+   cChannel(const cChannel &Channel);
+@@ -200,7 +203,8 @@ public:
+   int Guard(void) const { return guard; }
+   int Hierarchy(void) const { return hierarchy; }
+   const cLinkChannels* LinkChannels(void) const { return linkChannels; }
+-  const cChannel *RefChannel(void) const { return refChannel; }
++  const cChannel *RefChannel(void) const { return refChannels ? refChannels->Last()->Channel() : 0; }
++  const cLinkChannels* RefChannels(void) const { return refChannels; }
+   bool IsPlug(void) const { return cSource::IsPlug(source); }
+   bool IsCable(void) const { return cSource::IsCable(source); }
+   bool IsSat(void) const { return cSource::IsSat(source); }
+@@ -221,7 +225,39 @@ public:
+   void SetCaIds(const int *CaIds); // list must be zero-terminated
+   void SetCaDescriptors(int Level);
+   void SetLinkChannels(cLinkChannels *LinkChannels);
+-  void SetRefChannel(cChannel *RefChannel);
++  };
++
++class cIteratorImpl {
++private:
++  int refCount;
++  cIteratorImpl(const cIteratorImpl &);
++  const cIteratorImpl &operator =(const cIteratorImpl &);
++public:
++  cIteratorImpl(void) { refCount = 0; }
++  virtual ~cIteratorImpl() {}
++  virtual int AddRef(void) { return ++refCount; }
++  virtual int DelRef(void) { int RefCount = --refCount; if (RefCount <= 0) delete this; return RefCount; }
++  virtual void *First(void) = 0;
++  virtual void *Last(void)  = 0;
++  virtual void *Prev(void)  = 0;
++  virtual void *Next(void)  = 0;
++  virtual void *Current(void) const = 0;
++  };
++
++template <class T> class cIterator
++{
++private:
++  cIteratorImpl *impl;
++public:
++  cIterator(cIteratorImpl *Impl) { impl = Impl; impl->AddRef(); }
++  cIterator(const cIterator &rhs) { impl = rhs.impl; impl->AddRef(); }
++  ~cIterator() { impl->DelRef(); }
++  const cIterator &operator =(const cIterator &rhs) { rhs.impl->AddRef(); impl->DelRef(); impl = rhs.impl; return *this; }
++  T *First(void) const   { return (T *)impl->First(); }
++  T *Last(void) const    { return (T *)impl->Last(); }
++  T *Prev(void) const    { return (T *)impl->Prev(); }
++  T *Next(void) const    { return (T *)impl->Next(); }
++  T *Current(void) const { return (T *)impl->Current(); }
+   };
+ 
+ class cChannels : public cRwLock, public cConfig<cChannel> {
+@@ -230,7 +266,10 @@ private:
+   int modified;
+   int beingEdited;
+   cHash<cChannel> channelsHashSid;
++  cHash<cChannel> channelsHashNidTid;
+   void DeleteDuplicateChannels(void);
++  void ClearChannelHashes(void);
++  static unsigned int HashKeyNidTid(unsigned short Nid, unsigned short Tid);
+ public:
+   cChannels(void);
+   bool Load(const char *FileName, bool AllowComments = false, bool MustExist = false);
+@@ -245,6 +284,7 @@ public:
+   cChannel *GetByServiceID(int Source, int Transponder, unsigned short ServiceID);
+   cChannel *GetByChannelID(tChannelID ChannelID, bool TryWithoutRid = false, bool TryWithoutPolarization = false);
+   cChannel *GetByTransponderID(tChannelID ChannelID);
++  cIterator<cChannel> GetChannelsBySourceNidTid(int Source, unsigned short Nid, unsigned short Tid);
+   int BeingEdited(void) { return beingEdited; }
+   void IncBeingEdited(void) { beingEdited++; }
+   void DecBeingEdited(void) { beingEdited--; }
+diff -p -up vdr-1.6.0/device.c.orig vdr-1.6.0/device.c
+--- vdr-1.6.0/device.c.orig	2009-07-25 21:28:03.345094658 +0300
++++ vdr-1.6.0/device.c	2009-07-25 21:30:44.946843654 +0300
+@@ -1117,7 +1117,7 @@ eSetChannelResult cDevice::SetChannel(co
+            }
+         for (int i = 0; i < MAXSPIDS; i++)
+             SetAvailableTrack(ttSubtitle, i, Channel->Spid(i), Channel->Slang(i));
+-        if (!NeedsTransferMode)
++        if (!NeedsTransferMode || GetCurrentAudioTrack() == ttNone)
+            EnsureAudioTrack(true);
+         EnsureSubtitleTrack();
+         }
+diff -p -up vdr-1.6.0/dvbplayer.c.orig vdr-1.6.0/dvbplayer.c
+--- vdr-1.6.0/dvbplayer.c.orig	2009-07-25 21:29:14.428093152 +0300
++++ vdr-1.6.0/dvbplayer.c	2009-07-25 21:31:51.422094016 +0300
+@@ -183,8 +183,8 @@ bool cNonBlockingFileReader::WaitForData
+ 
+ #define PLAYERBUFSIZE  MEGABYTE(1)
+ 
+-// The number of frames to back up when resuming an interrupted replay session:
+-#define RESUMEBACKUP (10 * FRAMESPERSEC)
++// The number of seconds to back up when resuming an interrupted replay session:
++#define RESUMEBACKUP 10
+ 
+ class cDvbPlayer : public cPlayer, cThread {
+ private:
+@@ -198,6 +198,7 @@ private:
+   cFileName *fileName;
+   cIndexFile *index;
+   cUnbufferedFile *replayFile;
++  int framesPerSec;
+   bool eof;
+   bool firstPacket;
+   ePlayModes playMode;
+@@ -227,6 +228,7 @@ public:
+   void Goto(int Position, bool Still = false);
+   virtual bool GetIndex(int &Current, int &Total, bool SnapToIFrame = false);
+   virtual bool GetReplayMode(bool &Play, bool &Forward, int &Speed);
++  int GetFramesPerSec(void) { return framesPerSec; }
+   };
+ 
+ #define MAX_VIDEO_SLOWMOTION 63 // max. arg to pass to VIDEO_SLOWMOTION // TODO is this value correct?
+@@ -255,6 +257,7 @@ cDvbPlayer::cDvbPlayer(const char *FileN
+   replayFile = fileName->Open();
+   if (!replayFile)
+      return;
++  framesPerSec = replayFile->GetFramesPerSec();
+   ringBuffer = new cRingBufferFrame(PLAYERBUFSIZE);
+   // Create the index file:
+   index = new cIndexFile(FileName, false);
+@@ -373,7 +376,7 @@ bool cDvbPlayer::Save(void)
+         if (Setup.PlayJump && marks.First() &&
+             abs(Index - marks.First()->position) <= RESUMEBACKUP)
+            Index = 0;
+-        Index -= RESUMEBACKUP;
++        Index -= RESUMEBACKUP * GetFramesPerSec();
+         if (Index > 0)
+            Index = index->GetNextIFrame(Index, false);
+         else
+@@ -405,7 +408,7 @@ void cDvbPlayer::Action(void)
+ 
+   readIndex = Resume();
+   if (readIndex >= 0)
+-     isyslog("resuming replay at index %d (%s)", readIndex, *IndexToHMSF(readIndex, true));
++     isyslog("resuming replay at index %d (%s)", readIndex, *IndexToHMSF(readIndex, true, GetFramesPerSec()));
+ 
+   if (Setup.PlayJump && readIndex <= 0 && marks.First() && index) {
+      int Index = marks.First()->position;
+@@ -774,7 +777,7 @@ void cDvbPlayer::SkipSeconds(int Seconds
+      Empty();
+      int Index = writeIndex;
+      if (Index >= 0) {
+-        Index = max(Index + Seconds * FRAMESPERSEC, 0);
++        Index = max(Index + Seconds * GetFramesPerSec(), 0);
+         if (Index > 0)
+            Index = index->GetNextIFrame(Index, false, NULL, NULL, NULL, true);
+         if (Index >= 0)
+@@ -821,7 +824,8 @@ void cDvbPlayer::Goto(int Index, bool St
+               b[r++] = 0x00;
+               b[r++] = 0x00;
+               b[r++] = 0x01;
+-              b[r++] = 0xB7;
++              b[r] = (cRemux::IsFrameH264(b, r) ? 10 : 0xB7);
++              r++;
+               }
+            DeviceStillPicture(b, r);
+            }
+@@ -941,3 +945,10 @@ void cDvbPlayerControl::Goto(int Positio
+   if (player)
+      player->Goto(Position, Still);
+ }
++
++int cDvbPlayerControl::GetFramesPerSec()
++{
++  if (player)
++     return player->GetFramesPerSec();
++  return FRAMESPERSEC;
++}
+diff -p -up vdr-1.6.0/dvbplayer.h.orig vdr-1.6.0/dvbplayer.h
+--- vdr-1.6.0/dvbplayer.h.orig	2002-06-23 13:13:51.000000000 +0300
++++ vdr-1.6.0/dvbplayer.h	2009-07-25 21:30:44.962844559 +0300
+@@ -54,6 +54,8 @@ public:
+   void Goto(int Index, bool Still = false);
+        // Positions to the given index and displays that frame as a still picture
+        // if Still is true.
++  int GetFramesPerSec();
++       // Returns the number of frames per second for the current recording.
+   };
+ 
+ #endif //__DVBPLAYER_H
+diff -p -up vdr-1.6.0/epg.c.orig vdr-1.6.0/epg.c
+--- vdr-1.6.0/epg.c.orig	2009-07-25 21:22:30.216092950 +0300
++++ vdr-1.6.0/epg.c	2009-07-25 21:30:44.967843742 +0300
+@@ -1392,6 +1392,7 @@ cSchedule *cSchedules::AddSchedule(tChan
+   if (!p) {
+      p = new cSchedule(ChannelID);
+      Add(p);
++     HashSchedule(p);
+      cChannel *channel = Channels.GetByChannelID(ChannelID);
+      if (channel)
+         channel->schedule = p;
+@@ -1402,10 +1403,14 @@ cSchedule *cSchedules::AddSchedule(tChan
+ const cSchedule *cSchedules::GetSchedule(tChannelID ChannelID) const
+ {
+   ChannelID.ClrRid();
+-  for (cSchedule *p = First(); p; p = Next(p)) {
+-      if (p->ChannelID() == ChannelID)
+-         return p;
+-      }
++  cList<cHashObject> *list = schedulesHash.GetList(HashKey(ChannelID));
++  if (list) {
++     for (cHashObject *hobj = list->First(); hobj; hobj = list->Next(hobj)) {
++         cSchedule *p = (cSchedule *)hobj->Object();
++         if (p->ChannelID() == ChannelID)
++            return p;
++         }
++     }
+   return NULL;
+ }
+ 
+@@ -1421,7 +1426,23 @@ const cSchedule *cSchedules::GetSchedule
+   if (Channel->schedule == &DummySchedule && AddIfMissing) {
+      cSchedule *Schedule = new cSchedule(Channel->GetChannelID());
+      ((cSchedules *)this)->Add(Schedule);
++     ((cSchedules *)this)->HashSchedule(Schedule);
+      Channel->schedule = Schedule;
+      }
+   return Channel->schedule != &DummySchedule? Channel->schedule : NULL;
+ }
++
++void cSchedules::HashSchedule(cSchedule *Schedule)
++{
++  schedulesHash.Add(Schedule, HashKey(Schedule->ChannelID().ClrRid()));
++}
++
++void cSchedules::UnhashSchedule(cSchedule *Schedule)
++{
++  schedulesHash.Del(Schedule, HashKey(Schedule->ChannelID().ClrRid()));
++}
++
++unsigned int cSchedules::HashKey(tChannelID ChannelID)
++{
++  return (unsigned int)((ChannelID.Nid() << 16 | ChannelID.Source()) ^ (ChannelID.Tid() << 16 | ChannelID.Sid()) ^ ChannelID.Rid());
++}
+diff -p -up vdr-1.6.0/epg.h.orig vdr-1.6.0/epg.h
+--- vdr-1.6.0/epg.h.orig	2009-07-25 21:22:30.221093092 +0300
++++ vdr-1.6.0/epg.h	2009-07-25 21:30:44.973842521 +0300
+@@ -186,11 +186,15 @@ class cSchedules : public cList<cSchedul
+   friend class cSchedulesLock;
+ private:
+   cRwLock rwlock;
++  cHash<cSchedule> schedulesHash;
+   static cSchedules schedules;
+   static const char *epgDataFileName;
+   static time_t lastCleanup;
+   static time_t lastDump;
+   static time_t modified;
++  void HashSchedule(cSchedule *Schedule);
++  void UnhashSchedule(cSchedule *Schedule);
++  static unsigned int HashKey(tChannelID ChannelID);
+ public:
+   static void SetEpgDataFileName(const char *FileName);
+   static const cSchedules *Schedules(cSchedulesLock &SchedulesLock);
+diff -p -up vdr-1.6.0/h264parser.c.orig vdr-1.6.0/h264parser.c
+--- vdr-1.6.0/h264parser.c.orig	2009-07-25 21:30:45.000844426 +0300
++++ vdr-1.6.0/h264parser.c	2009-07-25 21:30:45.000844426 +0300
+@@ -0,0 +1,461 @@
++/*
++ * h264parser.c: a minimalistic H.264 video stream parser
++ *
++ * See the main source file 'vdr.c' for copyright information and
++ * how to reach the author.
++ *
++ * The code was originally written by Reinhard Nissl <rnissl@gmx.de>,
++ * and adapted to the VDR coding style by Klaus.Schmidinger@cadsoft.de.
++ */
++
++#include "tools.h"
++#include "h264parser.h"
++
++namespace H264
++{
++  // --- cContext ------------------------------------------------------------
++
++  int cContext::GetFramesPerSec(void) const
++  {
++    const cSequenceParameterSet *SPS = ActiveSPS();
++    const cSliceHeader *SH = CurrentSlice();
++    if (!SH || !SPS->timing_info_present_flag || !SPS->time_scale || !SPS->num_units_in_tick)
++       return -1;
++    uint32_t DeltaTfiDivisor;
++    if (SPS->pic_struct_present_flag) {
++       if (!SPS->pic_timing_sei.Defined())
++          return -1;
++       switch (SPS->pic_timing_sei.pic_struct) {
++         case 1:
++         case 2:
++              DeltaTfiDivisor = 1;
++              break;
++         case 0:
++         case 3:
++         case 4:
++              DeltaTfiDivisor = 2;
++              break;
++         case 5:
++         case 6:
++              DeltaTfiDivisor = 3;
++              break;
++         case 7:
++              DeltaTfiDivisor = 4;
++              break;
++         case 8:
++              DeltaTfiDivisor = 6;
++              break;
++         default:
++              return -1;
++         }
++       }
++    else if (!SH->field_pic_flag)
++       DeltaTfiDivisor = 2;
++    else
++       DeltaTfiDivisor = 1;
++
++    double FPS = (double)SPS->time_scale / SPS->num_units_in_tick / DeltaTfiDivisor / (SH->field_pic_flag ? 2 : 1);
++    int FramesPerSec = (int)FPS;
++    if ((FPS - FramesPerSec) >= 0.5)
++       FramesPerSec++;
++    return FramesPerSec;
++  }
++
++  // --- cSimpleBuffer -------------------------------------------------------
++
++  cSimpleBuffer::cSimpleBuffer(int Size)
++  {
++    size = Size;
++    data = new uchar[size];
++    avail = 0;
++    gotten = 0;
++  }
++
++  cSimpleBuffer::~cSimpleBuffer()
++  {
++    delete [] data;
++  }
++
++  int cSimpleBuffer::Put(const uchar *Data, int Count)
++  {
++    if (Count < 0) {
++       if (avail + Count < 0)
++          Count = 0 - avail;
++       if (avail + Count < gotten)
++          Count = gotten - avail;
++       avail += Count;
++       return Count;
++       }
++    if (avail + Count > size)
++       Count = size - avail;
++    memcpy(data + avail, Data, Count);
++    avail += Count;
++    return Count;
++  }
++
++  uchar *cSimpleBuffer::Get(int &Count)
++  {
++    Count = gotten = avail;
++    return data;
++  }
++
++  void cSimpleBuffer::Del(int Count)
++  {
++    if (Count < 0)
++       return;
++    if (Count > gotten) {
++       esyslog("ERROR: invalid Count in H264::cSimpleBuffer::Del: %d (limited to %d)", Count, gotten);
++       Count = gotten;
++       }
++    if (Count < avail)
++       memmove(data, data + Count, avail - Count);
++    avail -= Count;
++    gotten = 0;
++  }
++
++  void cSimpleBuffer::Clear(void)
++  {
++    avail = gotten = 0;
++  }
++
++  // --- cParser -------------------------------------------------------------
++
++  cParser::cParser(bool OmitPicTiming)
++    : nalUnitDataBuffer(1000)
++  {
++    // the above buffer size of 1000 bytes wont hold a complete NAL unit but
++    // should be sufficient for the relevant part used for parsing.
++    omitPicTiming = OmitPicTiming; // only necessary to determine frames per second
++    Reset();
++  }
++
++  void cParser::Reset(void)
++  {
++    context = cContext();
++    nalUnitDataBuffer.Clear();
++    syncing = true;
++  }
++
++  void cParser::ParseSequenceParameterSet(uint8_t *Data, int Count)
++  {
++    cSequenceParameterSet SPS;
++
++    cBitReader br(Data + 1, Count - 1);
++    uint32_t profile_idc = br.u(8);
++    /* uint32_t constraint_set0_flag = */ br.u(1);
++    /* uint32_t constraint_set1_flag = */ br.u(1);
++    /* uint32_t constraint_set2_flag = */ br.u(1);
++    /* uint32_t constraint_set3_flag = */ br.u(1);
++    /* uint32_t reserved_zero_4bits = */ br.u(4);
++    /* uint32_t level_idc = */ br.u(8);
++    SPS.seq_parameter_set_id = br.ue();
++    if (profile_idc == 100 || profile_idc == 110 || profile_idc == 122 || profile_idc == 144) {
++       uint32_t chroma_format_idc = br.ue();
++       if (chroma_format_idc == 3) {
++          /* uint32_t residual_colour_transform_flag = */ br.u(1);
++          }
++       /* uint32_t bit_depth_luma_minus8 = */ br.ue();
++       /* uint32_t bit_depth_chroma_minus8 = */ br.ue();
++       /* uint32_t qpprime_y_zero_transform_bypass_flag = */ br.u(1);
++       uint32_t seq_scaling_matrix_present_flag = br.u(1);
++       if (seq_scaling_matrix_present_flag) {
++          for (int i = 0; i < 8; i++) {
++              uint32_t seq_scaling_list_present_flag = br.u(1);
++              if (seq_scaling_list_present_flag) {
++                 int sizeOfScalingList = (i < 6) ? 16 : 64;
++                 int lastScale = 8;
++                 int nextScale = 8;
++                 for (int j = 0; j < sizeOfScalingList; j++) {
++                     if (nextScale != 0) {
++                        int32_t delta_scale = br.se();
++                        nextScale = (lastScale + delta_scale + 256) % 256;
++                        }
++                     lastScale = (nextScale == 0) ? lastScale : nextScale;
++                     }
++                 }
++              }
++          }
++       }
++    SPS.log2_max_frame_num_minus4(br.ue());
++    SPS.pic_order_cnt_type = br.ue();
++    if (SPS.pic_order_cnt_type == 0)
++       SPS.log2_max_pic_order_cnt_lsb_minus4(br.ue());
++    else if (SPS.pic_order_cnt_type == 1) {
++       SPS.delta_pic_order_always_zero_flag = br.u(1);
++       /* int32_t offset_for_non_ref_pic = */ br.se();
++       /* int32_t offset_for_top_to_bottom_field = */ br.se();
++       uint32_t num_ref_frames_in_pic_order_cnt_cycle = br.ue();
++       for (uint32_t i = 0; i < num_ref_frames_in_pic_order_cnt_cycle; i++) {
++           /* int32_t offset_for_ref_frame = */ br.se();
++           }
++       }
++    /* uint32_t num_ref_frames = */ br.ue();
++    /* uint32_t gaps_in_frame_num_value_allowed_flag = */ br.u(1);
++    /* uint32_t pic_width_in_mbs_minus1 = */ br.ue();
++    /* uint32_t pic_height_in_map_units_minus1 = */ br.ue();
++    SPS.frame_mbs_only_flag = br.u(1);
++
++    if (!omitPicTiming) {
++       if (!SPS.frame_mbs_only_flag) {
++          /* uint32_t mb_adaptive_frame_field_flag = */ br.u(1);
++          }
++       /* uint32_t direct_8x8_inference_flag = */ br.u(1);
++       uint32_t frame_cropping_flag = br.u(1);
++       if (frame_cropping_flag) {
++          /* uint32_t frame_crop_left_offset = */ br.ue();
++          /* uint32_t frame_crop_right_offset = */ br.ue();
++          /* uint32_t frame_crop_top_offset = */ br.ue();
++          /* uint32_t frame_crop_bottom_offset = */ br.ue();
++          }
++       uint32_t vui_parameters_present_flag = br.u(1);
++       if (vui_parameters_present_flag) {
++          uint32_t aspect_ratio_info_present_flag = br.u(1);
++          if (aspect_ratio_info_present_flag) {
++             uint32_t aspect_ratio_idc = br.u(8);
++             const uint32_t Extended_SAR = 255;
++             if (aspect_ratio_idc == Extended_SAR) {
++                /* uint32_t sar_width = */ br.u(16);
++                /* uint32_t sar_height = */ br.u(16);
++                }
++             }
++          uint32_t overscan_info_present_flag = br.u(1);
++          if (overscan_info_present_flag) {
++             /* uint32_t overscan_appropriate_flag = */ br.u(1);
++             }
++          uint32_t video_signal_type_present_flag = br.u(1);
++          if (video_signal_type_present_flag) {
++             /* uint32_t video_format = */ br.u(3);
++             /* uint32_t video_full_range_flag = */ br.u(1);
++             uint32_t colour_description_present_flag = br.u(1);
++             if (colour_description_present_flag) {
++                /* uint32_t colour_primaries = */ br.u(8);
++                /* uint32_t transfer_characteristics = */ br.u(8);
++                /* uint32_t matrix_coefficients = */ br.u(8);
++                }
++             }
++          uint32_t chroma_loc_info_present_flag = br.u(1);
++          if (chroma_loc_info_present_flag) {
++             /* uint32_t chroma_sample_loc_type_top_field = */ br.ue();
++             /* uint32_t chroma_sample_loc_type_bottom_field = */ br.ue();
++             }
++          SPS.timing_info_present_flag = br.u(1);
++          if (SPS.timing_info_present_flag) {
++             SPS.num_units_in_tick = br.u(32);
++             SPS.time_scale = br.u(32);
++             SPS.fixed_frame_rate_flag = br.u(1);
++             }
++          SPS.nal_hrd_parameters_present_flag = br.u(1);
++          if (SPS.nal_hrd_parameters_present_flag)
++             hrd_parameters(SPS, br);
++          SPS.vcl_hrd_parameters_present_flag = br.u(1);
++          if (SPS.vcl_hrd_parameters_present_flag)
++             hrd_parameters(SPS, br);
++          if (SPS.nal_hrd_parameters_present_flag || SPS.vcl_hrd_parameters_present_flag) {
++             /* uint32_t low_delay_hrd_flag = */ br.u(1);
++             }
++          SPS.pic_struct_present_flag = br.u(1);
++          }
++       }
++
++    context.Define(SPS);
++  }
++
++  void cParser::hrd_parameters(cSequenceParameterSet &SPS, cBitReader &br)
++  {
++    uint32_t cpb_cnt_minus1 = br.ue();
++    /* uint32_t bit_rate_scale = */ br.u(4);
++    /* uint32_t cpb_size_scale = */ br.u(4);
++    for (uint32_t i = 0; i <= cpb_cnt_minus1; i++) {
++        /* uint32_t bit_rate_value_minus1 = */ br.ue();
++        /* uint32_t cpb_size_value_minus1 = */ br.ue();
++        /* uint32_t cbr_flag = */ br.u(1);
++        }
++    /* uint32_t initial_cpb_removal_delay_length_minus1 = */ br.u(5);
++    SPS.cpb_removal_delay_length_minus1(br.u(5));
++    SPS.dpb_output_delay_length_minus1(br.u(5));
++    /* uint32_t time_offset_length = */ br.u(5);
++  }
++
++  void cParser::ParsePictureParameterSet(uint8_t *Data, int Count)
++  {
++    cPictureParameterSet PPS;
++
++    cBitReader br(Data + 1, Count - 1);
++    PPS.pic_parameter_set_id = br.ue();
++    PPS.seq_parameter_set_id = br.ue();
++    /* uint32_t entropy_coding_mode_flag = */ br.u(1);
++    PPS.pic_order_present_flag = br.u(1);
++
++    context.Define(PPS);
++  }
++
++  void cParser::ParseSlice(uint8_t *Data, int Count)
++  {
++    cSliceHeader SH;
++
++    cBitReader br(Data + 1, Count - 1);
++    SH.nal_ref_idc(Data[0] >> 5);
++    SH.nal_unit_type(Data[0] & 0x1F);
++    /* uint32_t first_mb_in_slice = */ br.ue();
++    SH.slice_type = br.ue();
++    SH.pic_parameter_set_id = br.ue();
++
++    context.ActivatePPS(SH.pic_parameter_set_id);
++    const cSequenceParameterSet *SPS = context.ActiveSPS();
++
++    SH.frame_num = br.u(SPS->log2_max_frame_num());
++    if (!SPS->frame_mbs_only_flag) {
++       SH.field_pic_flag = br.u(1);
++       if (SH.field_pic_flag)
++          SH.bottom_field_flag = br.u(1);
++       }
++    if (SH.nal_unit_type() == 5)
++       SH.idr_pic_id = br.ue();
++    if (SPS->pic_order_cnt_type == 0) {
++       SH.pic_order_cnt_lsb = br.u(SPS->log2_max_pic_order_cnt_lsb());
++       const cPictureParameterSet *PPS = context.ActivePPS();
++       if (PPS->pic_order_present_flag && !SH.field_pic_flag)
++          SH.delta_pic_order_cnt_bottom = br.se();
++       }
++    if (SPS->pic_order_cnt_type == 1 && !SPS->delta_pic_order_always_zero_flag) {
++       SH.delta_pic_order_cnt[0] = br.se();
++       const cPictureParameterSet *PPS = context.ActivePPS();
++       if (PPS->pic_order_present_flag && !SH.field_pic_flag)
++          SH.delta_pic_order_cnt[1] = br.se();
++       }
++
++    context.Define(SH);
++  }
++
++  void cParser::ParseSEI(uint8_t *Data, int Count)
++  {
++    // currently only used to determine frames per second
++    if (omitPicTiming)
++       return;
++    cBitReader br(Data + 1, Count - 1);
++    do
++      sei_message(br);
++    while (br.GetBytesAvail());
++  }
++
++  void cParser::sei_message(cBitReader &br)
++  {
++    uint32_t payloadType = 0;
++    while (1) {
++          uint32_t last_payload_type_byte = br.u(8);
++          payloadType += last_payload_type_byte;
++          if (last_payload_type_byte != 0xFF)
++             break;
++          }
++    uint32_t payloadSize = 0;
++    while (1) {
++          uint32_t last_payload_size_byte = br.u(8);
++          payloadSize += last_payload_size_byte;
++          if (last_payload_size_byte != 0xFF)
++             break;
++          }
++    sei_payload(payloadType, payloadSize, br);
++  }
++
++  void cParser::sei_payload(uint32_t payloadType, uint32_t payloadSize, cBitReader &br)
++  {
++    const cBitReader::cBookMark BookMark = br.BookMark();
++    switch (payloadType) {
++      case 0:
++           buffering_period(payloadSize, br);
++           break;
++      case 1:
++           pic_timing(payloadSize, br);
++           break;
++      }
++    // instead of dealing with trailing bits in each message
++    // go back to start of message and skip it completely
++    br.BookMark(BookMark);
++    reserved_sei_message(payloadSize, br);
++  }
++
++  void cParser::buffering_period(uint32_t payloadSize, cBitReader &br)
++  {
++    uint32_t seq_parameter_set_id = br.ue();
++
++    context.ActivateSPS(seq_parameter_set_id);
++  }
++
++  void cParser::pic_timing(uint32_t payloadSize, cBitReader &br)
++  {
++    cPictureTiming PT;
++
++    const cSequenceParameterSet *SPS = context.ActiveSPS();
++    if (!SPS)
++       return;
++    uint32_t CpbDpbDelaysPresentFlag = SPS->nal_hrd_parameters_present_flag || SPS->vcl_hrd_parameters_present_flag;
++    if (CpbDpbDelaysPresentFlag) {
++       /* uint32_t cpb_removal_delay = */ br.u(SPS->cpb_removal_delay_length());
++       /* uint32_t dpb_output_delay = */ br.u(SPS->dpb_output_delay_length());
++       }
++    if (SPS->pic_struct_present_flag) {
++       PT.pic_struct = br.u(4);
++       }
++
++    context.Define(PT);
++  }
++
++  void cParser::reserved_sei_message(uint32_t payloadSize, cBitReader &br)
++  {
++    for (uint32_t i = 0; i < payloadSize; i++) {
++        /* uint32_t reserved_sei_message_payload_byte = */ br.u(8);
++        }
++  }
++
++  void cParser::PutNalUnitData(const uchar *Data, int Count)
++  {
++    int n = nalUnitDataBuffer.Put(Data, Count);
++    // typically less than a complete NAL unit are needed for parsing the
++    // relevant data, so simply ignore the overflow condition.
++    if (false && n != Count)
++       esyslog("ERROR: H264::cParser::PutNalUnitData(): NAL unit data buffer overflow");
++  }
++
++  void cParser::Process()
++  {
++    // nalUnitDataBuffer contains the head of the current NAL unit -- let's parse it 
++    int Count = 0;
++    uchar *Data = nalUnitDataBuffer.Get(Count);
++    if (Data && Count >= 4) {
++       if (Data[0] == 0x00 && Data[1] == 0x00 && Data[2] == 0x01) {
++          int nal_unit_type = Data[3] & 0x1F;
++          try {
++              switch (nal_unit_type) {
++                case 1: // coded slice of a non-IDR picture
++                case 2: // coded slice data partition A
++                case 5: // coded slice of an IDR picture
++                     ParseSlice(Data + 3, Count - 3);
++                     break;
++                case 6: // supplemental enhancement information (SEI)
++                     ParseSEI(Data + 3, Count - 3);
++                     break;
++                case 7: // sequence parameter set
++                     syncing = false; // from now on, we should get reliable results
++                     ParseSequenceParameterSet(Data + 3, Count - 3);
++                     break;
++                case 8: // picture parameter set
++                     ParsePictureParameterSet(Data + 3, Count - 3);
++                     break;
++                }
++              }
++          catch (cException *e) {
++              if (!syncing) // suppress typical error messages while syncing
++                 esyslog("%s", e->Message());
++              delete e;
++              }
++          }
++       else if (!syncing)
++          esyslog("ERROR: H264::cParser::Process(): NAL unit data buffer content is invalid");
++       }
++    else if (!syncing)
++       esyslog("ERROR: H264::cParser::Process(): NAL unit data buffer content is too short");
++    // reset the buffer for the next NAL unit
++    nalUnitDataBuffer.Clear();
++  }
++}
++
+diff -p -up vdr-1.6.0/h264parser.h.orig vdr-1.6.0/h264parser.h
+--- vdr-1.6.0/h264parser.h.orig	2009-07-25 21:30:45.006843206 +0300
++++ vdr-1.6.0/h264parser.h	2009-07-25 21:30:45.006843206 +0300
+@@ -0,0 +1,397 @@
++/*
++ * h264parser.h: a minimalistic H.264 video stream parser
++ *
++ * See the main source file 'vdr.c' for copyright information and
++ * how to reach the author.
++ */
++
++#ifndef __H264PARSER_H
++#define __H264PARSER_H
++
++namespace H264
++{
++  // --- cException ----------------------------------------------------------
++
++  class cException {
++  private:
++    cString message;
++  public:
++    cException(const cString &Message) { message = Message; }
++    const cString &Message(void) const { return message; }
++  };
++
++  // --- cBitReader ----------------------------------------------------------
++
++  class cBitReader {
++  public:
++    class cBookMark {
++    private:
++      uint8_t *data;
++      int count;
++      uint32_t bits;
++      uint32_t bitsAvail;
++      int countZeros;
++      cBookMark(void) {}
++      friend class cBitReader;
++    };
++  private:
++    cBookMark bm;
++    uint8_t NextByte(void);
++    uint32_t ReadBits(uint32_t n);
++  public:
++    cBitReader(uint8_t *Data, int Count);
++    uint32_t u(uint32_t n) { return ReadBits(n); } // read n bits as unsigned number
++    uint32_t ue(void); // read Exp-Golomb coded unsigned number
++    int32_t se(void); // read Exp-Golomb coded signed number
++    uint32_t GetBitsAvail(void) { return (bm.bitsAvail & 0x07); }
++    bool GetBytesAvail(void) { return (bm.count > 0); }
++    const cBookMark BookMark(void) const { return bm; }
++    void BookMark(const cBookMark &b) { bm = b; }
++  };
++
++  inline cBitReader::cBitReader(unsigned char *Data, int Count)
++  {
++    bm.data = Data;
++    bm.count = Count;
++    bm.bitsAvail = 0;
++    bm.countZeros = 0;
++  }
++
++  inline uint8_t cBitReader::NextByte(void)
++  {
++    if (bm.count < 1) // there is no more data left in this NAL unit
++       throw new cException("ERROR: H264::cBitReader::NextByte(): premature end of data");
++    // detect 00 00 00, 00 00 01 and 00 00 03 and handle them
++    if (*bm.data == 0x00) {
++       if (bm.countZeros >= 3) // 00 00 00: the current NAL unit should have been terminated already before this sequence
++          throw new cException("ERROR: H264::cBitReader::NextByte(): premature end of data");
++       // increase the zero counter as we have a zero byte
++       bm.countZeros++;
++       }
++    else {
++       if (bm.countZeros >= 2) {
++          if (*bm.data == 0x01) // 00 00 01: the current NAL unit should have been terminated already before this sequence
++             throw new cException("ERROR: H264::cBitReader::NextByte(): premature end of data");
++          if (*bm.data == 0x03) {
++             // 00 00 03 xx: the emulation prevention byte 03 needs to be removed and xx must be returned
++             if (bm.count < 2)
++                throw new cException("ERROR: H264::cBitReader::NextByte(): premature end of data");
++             // drop 03 and xx will be returned below
++             bm.count--;
++             bm.data++;
++             }
++          }
++       // reset the zero counter as we had a non zero byte
++       bm.countZeros = 0;
++       }
++    bm.count--;
++    return *bm.data++;
++  }
++
++  inline uint32_t cBitReader::ReadBits(uint32_t n)
++  {
++    // fill the "shift register" bits with sufficient data
++    while (n > bm.bitsAvail) {
++          bm.bits <<= 8;
++          bm.bits |= NextByte();
++          bm.bitsAvail += 8;
++          if (bm.bitsAvail > 24) { // a further turn will overflow bitbuffer
++             if (n <= bm.bitsAvail)
++                break; // service non overflowing request
++             if (n <= 32) // split overflowing reads into concatenated reads 
++                return (ReadBits(16) << 16) | ReadBits(n - 16);
++             // cannot read more than 32 bits at once
++             throw new cException("ERROR: H264::cBitReader::ReadBits(): bitbuffer overflow");
++             }
++          }
++    // return n most significant bits
++    bm.bitsAvail -= n;
++    return (bm.bits >> bm.bitsAvail) & (((uint32_t)1 << n) - 1);
++  }
++
++  inline uint32_t cBitReader::ue(void)
++  {
++    // read and decode an Exp-Golomb coded unsigned number
++    //
++    // bitstring             resulting number
++    //       1               0
++    //     0 1 x             1 ... 2
++    //   0 0 1 x y           3 ... 6
++    // 0 0 0 1 x y z         7 ... 14
++    // ...
++    int LeadingZeroBits = 0;
++    while (ReadBits(1) == 0)
++          LeadingZeroBits++;
++    if (LeadingZeroBits == 0)
++       return 0;
++    if (LeadingZeroBits >= 32)
++       throw new cException("ERROR: H264::cBitReader::ue(): overflow");
++    return ((uint32_t)1 << LeadingZeroBits) - 1 + ReadBits(LeadingZeroBits);
++  }
++
++  inline int32_t cBitReader::se(void)
++  {
++    // read and decode an Exp-Golomb coded signed number
++    //
++    // unsigned value       resulting signed value
++    // 0                     0
++    // 1                    +1
++    // 2                    -1
++    // 3                    +2
++    // 4                    -2
++    // ...
++    uint32_t r = ue();
++    if (r > 0xFFFFFFFE)
++       throw new cException("ERROR: H264::cBitReader::se(): overflow");
++    return (1 - 2 * (r & 1)) * ((r + 1) / 2);
++  }
++
++  // --- cPictureTiming ------------------------------------------------------
++
++  class cPictureTiming {
++  private:
++    friend class cContext;
++    bool defined;
++  public:
++    cPictureTiming(void) { memset(this, 0, sizeof (*this)); }
++    bool Defined(void) const { return defined; }
++    uint32_t pic_struct;
++  };
++
++  // --- cSequenceParameterSet -----------------------------------------------
++
++  class cSequenceParameterSet {
++  private:
++    friend class cContext;
++    bool defined;
++    uint32_t log2MaxFrameNum;
++    uint32_t log2MaxPicOrderCntLsb;
++    uint32_t cpbRemovalDelayLength;
++    uint32_t dpbOutputDelayLength;
++  public:
++    cSequenceParameterSet(void);
++    bool Defined(void) { return defined; }
++    void log2_max_frame_num_minus4(uint32_t Value) { log2MaxFrameNum = Value + 4; }
++    uint32_t log2_max_frame_num_minus4(void) const { return log2MaxFrameNum - 4; }
++    uint32_t log2_max_frame_num(void) const { return log2MaxFrameNum; }
++    void log2_max_pic_order_cnt_lsb_minus4(uint32_t Value) { log2MaxPicOrderCntLsb = Value + 4; }
++    uint32_t log2_max_pic_order_cnt_lsb_minus4(void) const { return log2MaxPicOrderCntLsb - 4; }
++    uint32_t log2_max_pic_order_cnt_lsb(void) const { return log2MaxPicOrderCntLsb; }
++    void cpb_removal_delay_length_minus1(uint32_t Value) { cpbRemovalDelayLength = Value + 1; }
++    uint32_t cpb_removal_delay_length_minus1(void) const { return cpbRemovalDelayLength - 1; }
++    uint32_t cpb_removal_delay_length(void) const { return cpbRemovalDelayLength; }
++    void dpb_output_delay_length_minus1(uint32_t Value) { dpbOutputDelayLength = Value + 1; }
++    uint32_t dpb_output_delay_length_minus1(void) const { return dpbOutputDelayLength - 1; }
++    uint32_t dpb_output_delay_length(void) const { return dpbOutputDelayLength; }
++    uint32_t seq_parameter_set_id;
++    uint32_t pic_order_cnt_type;
++    uint32_t delta_pic_order_always_zero_flag;
++    uint32_t frame_mbs_only_flag;
++    uint32_t timing_info_present_flag;
++    uint32_t num_units_in_tick;
++    uint32_t time_scale;
++    uint32_t fixed_frame_rate_flag;
++    uint32_t nal_hrd_parameters_present_flag;
++    uint32_t vcl_hrd_parameters_present_flag;
++    uint32_t pic_struct_present_flag;
++    cPictureTiming pic_timing_sei;
++  };
++
++  inline cSequenceParameterSet::cSequenceParameterSet(void)
++  {
++    memset(this, 0, sizeof (*this));
++    log2_max_frame_num_minus4(0);
++    log2_max_pic_order_cnt_lsb_minus4(0);
++    cpb_removal_delay_length_minus1(23);
++    dpb_output_delay_length_minus1(23);
++  }
++
++  // --- cPictureParameterSet ------------------------------------------------
++
++  class cPictureParameterSet {
++  private:
++    friend class cContext;
++    bool defined;
++  public:
++    cPictureParameterSet(void) { memset(this, 0, sizeof (*this)); }
++    bool Defined(void) { return defined; }
++    uint32_t pic_parameter_set_id;
++    uint32_t seq_parameter_set_id;
++    uint32_t pic_order_present_flag;
++  };
++
++  // --- cSliceHeader --------------------------------------------------------
++
++  class cSliceHeader {
++  private:
++    friend class cContext;
++    bool defined;
++    bool isFirstSliceOfCurrentAccessUnit;
++    uint32_t picOrderCntType;
++    uint32_t nalRefIdc;
++    uint32_t nalUnitType;
++  public:
++    cSliceHeader(void) { memset(this, 0, sizeof (*this)); }
++    bool Defined(void) const { return defined; }
++    bool IsFirstSliceOfCurrentAccessUnit(void) const { return isFirstSliceOfCurrentAccessUnit; }
++    void nal_ref_idc(uint32_t Value) { nalRefIdc = Value; }
++    uint32_t nal_ref_idc(void) const { return nalRefIdc; }
++    void nal_unit_type(uint32_t Value) { nalUnitType = Value; }
++    uint32_t nal_unit_type(void) const { return nalUnitType; }
++    uint32_t slice_type;
++    uint32_t pic_parameter_set_id;
++    uint32_t frame_num;
++    uint32_t field_pic_flag;
++    uint32_t bottom_field_flag;
++    uint32_t idr_pic_id;
++    uint32_t pic_order_cnt_lsb;
++    int32_t delta_pic_order_cnt_bottom;
++    int32_t delta_pic_order_cnt[2];
++    enum eAccessUnitType {
++      Frame = 0,
++      TopField,
++      BottomField
++      };
++    eAccessUnitType GetAccessUnitType() const { return (eAccessUnitType)(field_pic_flag + bottom_field_flag); }
++  };
++
++  // --- cContext ------------------------------------------------------------
++
++  class cContext {
++  private:
++    cSequenceParameterSet spsStore[32];
++    cPictureParameterSet ppsStore[256];
++    cSequenceParameterSet *sps; // active Sequence Parameter Set
++    cPictureParameterSet *pps; // active Picture Parameter Set
++    cSliceHeader sh;
++  public:
++    cContext(void) { sps = 0; pps = 0; }
++    void Define(cSequenceParameterSet &SPS);
++    void Define(cPictureParameterSet &PPS);
++    void Define(cSliceHeader &SH);
++    void Define(cPictureTiming &PT);
++    void ActivateSPS(uint32_t ID);
++    void ActivatePPS(uint32_t ID);
++    const cSequenceParameterSet *ActiveSPS(void) const { return sps; }
++    const cPictureParameterSet *ActivePPS(void) const { return pps; }
++    const cSliceHeader *CurrentSlice(void) const { return sh.Defined() ? &sh : 0; }
++    int GetFramesPerSec(void) const;
++  };
++
++  inline void cContext::ActivateSPS(uint32_t ID)
++  {
++    if (ID >= (sizeof (spsStore) / sizeof (*spsStore)))
++       throw new cException("ERROR: H264::cContext::ActivateSPS(): id out of range");
++    if (!spsStore[ID].Defined())
++       throw new cException("ERROR: H264::cContext::ActivateSPS(): requested SPS is undefined");
++    sps = &spsStore[ID];
++  }
++
++  inline void cContext::ActivatePPS(uint32_t ID)
++  {
++    if (ID >= (sizeof (ppsStore) / sizeof (*ppsStore)))
++       throw new cException("ERROR: H264::cContext::ActivatePPS(): id out of range");
++    if (!ppsStore[ID].Defined())
++       throw new cException("ERROR: H264::cContext::ActivatePPS(): requested PPS is undefined");
++    pps = &ppsStore[ID];
++    ActivateSPS(pps->seq_parameter_set_id);
++  }
++
++  inline void cContext::Define(cSequenceParameterSet &SPS)
++  {
++    if (SPS.seq_parameter_set_id >= (sizeof (spsStore) / sizeof (*spsStore)))
++       throw new cException("ERROR: H264::cContext::DefineSPS(): id out of range");
++    SPS.defined = true;
++    spsStore[SPS.seq_parameter_set_id] = SPS;
++  }
++
++  inline void cContext::Define(cPictureParameterSet &PPS)
++  {
++    if (PPS.pic_parameter_set_id >= (sizeof (ppsStore) / sizeof (*ppsStore)))
++       throw new cException("ERROR: H264::cContext::DefinePPS(): id out of range");
++    PPS.defined = true;
++    ppsStore[PPS.pic_parameter_set_id] = PPS;
++  }
++
++  inline void cContext::Define(cSliceHeader &SH)
++  {
++    SH.defined = true;
++    SH.picOrderCntType = ActiveSPS()->pic_order_cnt_type;
++
++    // ITU-T Rec. H.264 (03/2005): 7.4.1.2.4
++    SH.isFirstSliceOfCurrentAccessUnit = !sh.Defined()
++      || (sh.frame_num                  != SH.frame_num)
++      || (sh.pic_parameter_set_id       != SH.pic_parameter_set_id)
++      || (sh.field_pic_flag             != SH.field_pic_flag)
++      || (sh.bottom_field_flag          != SH.bottom_field_flag)
++      || (sh.nalRefIdc                  != SH.nalRefIdc
++      && (sh.nalRefIdc == 0             || SH.nalRefIdc == 0))
++      || (sh.picOrderCntType == 0       && SH.picOrderCntType == 0
++      && (sh.pic_order_cnt_lsb          != SH.pic_order_cnt_lsb
++      ||  sh.delta_pic_order_cnt_bottom != SH.delta_pic_order_cnt_bottom))
++      || (sh.picOrderCntType == 1       && SH.picOrderCntType == 1
++      && (sh.delta_pic_order_cnt[0]     != SH.delta_pic_order_cnt[0]
++      ||  sh.delta_pic_order_cnt[1]     != SH.delta_pic_order_cnt[1]))
++      || (sh.nalUnitType                != SH.nalUnitType
++      && (sh.nalUnitType == 5           || SH.nalUnitType == 5))
++      || (sh.nalUnitType == 5           && SH.nalUnitType == 5
++      &&  sh.idr_pic_id                 != SH.idr_pic_id);
++        
++    sh = SH;
++  }
++
++  inline void cContext::Define(cPictureTiming &PT)
++  {
++    PT.defined = true;
++    ((cSequenceParameterSet *)ActiveSPS())->pic_timing_sei = PT;
++  }
++
++  // --- cSimpleBuffer -------------------------------------------------------
++
++  class cSimpleBuffer {
++  private:
++    uchar *data;
++    int size;
++    int avail;
++    int gotten;
++  public:
++    cSimpleBuffer(int Size);
++    ~cSimpleBuffer();
++    int Size(void) { return size; }
++    int Available(void) { return avail; }
++    int Free(void) { return size - avail; }
++    int Put(const uchar *Data, int Count);
++    uchar *Get(int &Count);
++    void Del(int Count);
++    void Clear(void);
++  };
++
++  // --- cParser -------------------------------------------------------------
++
++  class cParser {
++  private:
++    bool syncing;
++    bool omitPicTiming;
++    cContext context;
++    cSimpleBuffer nalUnitDataBuffer;
++    void hrd_parameters(cSequenceParameterSet &SPS, cBitReader &br);
++    void ParseSequenceParameterSet(uint8_t *Data, int Count);
++    void ParsePictureParameterSet(uint8_t *Data, int Count);
++    void ParseSlice(uint8_t *Data, int Count);
++    void reserved_sei_message(uint32_t payloadSize, cBitReader &br);
++    void pic_timing(uint32_t payloadSize, cBitReader &br);
++    void buffering_period(uint32_t payloadSize, cBitReader &br);
++    void sei_payload(uint32_t payloadType, uint32_t payloadSize, cBitReader &br);
++    void sei_message(cBitReader &br);
++    void ParseSEI(uint8_t *Data, int Count);
++  public:
++    cParser(bool OmitPicTiming = true);
++    const cContext &Context(void) const { return context; }
++    void PutNalUnitData(const uchar *Data, int Count);
++    void Reset(void);
++    void Process(void);
++  };
++}
++
++#endif // __H264PARSER_H
++
+diff -p -up vdr-1.6.0/libsi/util.c.orig vdr-1.6.0/libsi/util.c
+--- vdr-1.6.0/libsi/util.c.orig	2006-02-18 13:17:50.000000000 +0200
++++ vdr-1.6.0/libsi/util.c	2009-07-25 21:30:45.011842429 +0300
+@@ -219,58 +219,73 @@ time_t DVBTime::getDuration(unsigned cha
+ 
+ //taken and adapted from libdtv, (c) Rolf Hakenes
+ // CRC32 lookup table for polynomial 0x04c11db7
++// swapped bytes to avoid one shift operation in CRC loop (c) Reinhard Nissl
+ u_int32_t CRC32::crc_table[256] = {
+-   0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9, 0x130476dc, 0x17c56b6b,
+-   0x1a864db2, 0x1e475005, 0x2608edb8, 0x22c9f00f, 0x2f8ad6d6, 0x2b4bcb61,
+-   0x350c9b64, 0x31cd86d3, 0x3c8ea00a, 0x384fbdbd, 0x4c11db70, 0x48d0c6c7,
+-   0x4593e01e, 0x4152fda9, 0x5f15adac, 0x5bd4b01b, 0x569796c2, 0x52568b75,
+-   0x6a1936c8, 0x6ed82b7f, 0x639b0da6, 0x675a1011, 0x791d4014, 0x7ddc5da3,
+-   0x709f7b7a, 0x745e66cd, 0x9823b6e0, 0x9ce2ab57, 0x91a18d8e, 0x95609039,
+-   0x8b27c03c, 0x8fe6dd8b, 0x82a5fb52, 0x8664e6e5, 0xbe2b5b58, 0xbaea46ef,
+-   0xb7a96036, 0xb3687d81, 0xad2f2d84, 0xa9ee3033, 0xa4ad16ea, 0xa06c0b5d,
+-   0xd4326d90, 0xd0f37027, 0xddb056fe, 0xd9714b49, 0xc7361b4c, 0xc3f706fb,
+-   0xceb42022, 0xca753d95, 0xf23a8028, 0xf6fb9d9f, 0xfbb8bb46, 0xff79a6f1,
+-   0xe13ef6f4, 0xe5ffeb43, 0xe8bccd9a, 0xec7dd02d, 0x34867077, 0x30476dc0,
+-   0x3d044b19, 0x39c556ae, 0x278206ab, 0x23431b1c, 0x2e003dc5, 0x2ac12072,
+-   0x128e9dcf, 0x164f8078, 0x1b0ca6a1, 0x1fcdbb16, 0x018aeb13, 0x054bf6a4,
+-   0x0808d07d, 0x0cc9cdca, 0x7897ab07, 0x7c56b6b0, 0x71159069, 0x75d48dde,
+-   0x6b93dddb, 0x6f52c06c, 0x6211e6b5, 0x66d0fb02, 0x5e9f46bf, 0x5a5e5b08,
+-   0x571d7dd1, 0x53dc6066, 0x4d9b3063, 0x495a2dd4, 0x44190b0d, 0x40d816ba,
+-   0xaca5c697, 0xa864db20, 0xa527fdf9, 0xa1e6e04e, 0xbfa1b04b, 0xbb60adfc,
+-   0xb6238b25, 0xb2e29692, 0x8aad2b2f, 0x8e6c3698, 0x832f1041, 0x87ee0df6,
+-   0x99a95df3, 0x9d684044, 0x902b669d, 0x94ea7b2a, 0xe0b41de7, 0xe4750050,
+-   0xe9362689, 0xedf73b3e, 0xf3b06b3b, 0xf771768c, 0xfa325055, 0xfef34de2,
+-   0xc6bcf05f, 0xc27dede8, 0xcf3ecb31, 0xcbffd686, 0xd5b88683, 0xd1799b34,
+-   0xdc3abded, 0xd8fba05a, 0x690ce0ee, 0x6dcdfd59, 0x608edb80, 0x644fc637,
+-   0x7a089632, 0x7ec98b85, 0x738aad5c, 0x774bb0eb, 0x4f040d56, 0x4bc510e1,
+-   0x46863638, 0x42472b8f, 0x5c007b8a, 0x58c1663d, 0x558240e4, 0x51435d53,
+-   0x251d3b9e, 0x21dc2629, 0x2c9f00f0, 0x285e1d47, 0x36194d42, 0x32d850f5,
+-   0x3f9b762c, 0x3b5a6b9b, 0x0315d626, 0x07d4cb91, 0x0a97ed48, 0x0e56f0ff,
+-   0x1011a0fa, 0x14d0bd4d, 0x19939b94, 0x1d528623, 0xf12f560e, 0xf5ee4bb9,
+-   0xf8ad6d60, 0xfc6c70d7, 0xe22b20d2, 0xe6ea3d65, 0xeba91bbc, 0xef68060b,
+-   0xd727bbb6, 0xd3e6a601, 0xdea580d8, 0xda649d6f, 0xc423cd6a, 0xc0e2d0dd,
+-   0xcda1f604, 0xc960ebb3, 0xbd3e8d7e, 0xb9ff90c9, 0xb4bcb610, 0xb07daba7,
+-   0xae3afba2, 0xaafbe615, 0xa7b8c0cc, 0xa379dd7b, 0x9b3660c6, 0x9ff77d71,
+-   0x92b45ba8, 0x9675461f, 0x8832161a, 0x8cf30bad, 0x81b02d74, 0x857130c3,
+-   0x5d8a9099, 0x594b8d2e, 0x5408abf7, 0x50c9b640, 0x4e8ee645, 0x4a4ffbf2,
+-   0x470cdd2b, 0x43cdc09c, 0x7b827d21, 0x7f436096, 0x7200464f, 0x76c15bf8,
+-   0x68860bfd, 0x6c47164a, 0x61043093, 0x65c52d24, 0x119b4be9, 0x155a565e,
+-   0x18197087, 0x1cd86d30, 0x029f3d35, 0x065e2082, 0x0b1d065b, 0x0fdc1bec,
+-   0x3793a651, 0x3352bbe6, 0x3e119d3f, 0x3ad08088, 0x2497d08d, 0x2056cd3a,
+-   0x2d15ebe3, 0x29d4f654, 0xc5a92679, 0xc1683bce, 0xcc2b1d17, 0xc8ea00a0,
+-   0xd6ad50a5, 0xd26c4d12, 0xdf2f6bcb, 0xdbee767c, 0xe3a1cbc1, 0xe760d676,
+-   0xea23f0af, 0xeee2ed18, 0xf0a5bd1d, 0xf464a0aa, 0xf9278673, 0xfde69bc4,
+-   0x89b8fd09, 0x8d79e0be, 0x803ac667, 0x84fbdbd0, 0x9abc8bd5, 0x9e7d9662,
+-   0x933eb0bb, 0x97ffad0c, 0xafb010b1, 0xab710d06, 0xa6322bdf, 0xa2f33668,
+-   0xbcb4666d, 0xb8757bda, 0xb5365d03, 0xb1f740b4};
++   0x00000000, 0xb71dc104, 0x6e3b8209, 0xd926430d, 0xdc760413, 0x6b6bc517,
++   0xb24d861a, 0x0550471e, 0xb8ed0826, 0x0ff0c922, 0xd6d68a2f, 0x61cb4b2b,
++   0x649b0c35, 0xd386cd31, 0x0aa08e3c, 0xbdbd4f38, 0x70db114c, 0xc7c6d048,
++   0x1ee09345, 0xa9fd5241, 0xacad155f, 0x1bb0d45b, 0xc2969756, 0x758b5652,
++   0xc836196a, 0x7f2bd86e, 0xa60d9b63, 0x11105a67, 0x14401d79, 0xa35ddc7d,
++   0x7a7b9f70, 0xcd665e74, 0xe0b62398, 0x57abe29c, 0x8e8da191, 0x39906095,
++   0x3cc0278b, 0x8bdde68f, 0x52fba582, 0xe5e66486, 0x585b2bbe, 0xef46eaba,
++   0x3660a9b7, 0x817d68b3, 0x842d2fad, 0x3330eea9, 0xea16ada4, 0x5d0b6ca0,
++   0x906d32d4, 0x2770f3d0, 0xfe56b0dd, 0x494b71d9, 0x4c1b36c7, 0xfb06f7c3,
++   0x2220b4ce, 0x953d75ca, 0x28803af2, 0x9f9dfbf6, 0x46bbb8fb, 0xf1a679ff,
++   0xf4f63ee1, 0x43ebffe5, 0x9acdbce8, 0x2dd07dec, 0x77708634, 0xc06d4730,
++   0x194b043d, 0xae56c539, 0xab068227, 0x1c1b4323, 0xc53d002e, 0x7220c12a,
++   0xcf9d8e12, 0x78804f16, 0xa1a60c1b, 0x16bbcd1f, 0x13eb8a01, 0xa4f64b05,
++   0x7dd00808, 0xcacdc90c, 0x07ab9778, 0xb0b6567c, 0x69901571, 0xde8dd475,
++   0xdbdd936b, 0x6cc0526f, 0xb5e61162, 0x02fbd066, 0xbf469f5e, 0x085b5e5a,
++   0xd17d1d57, 0x6660dc53, 0x63309b4d, 0xd42d5a49, 0x0d0b1944, 0xba16d840,
++   0x97c6a5ac, 0x20db64a8, 0xf9fd27a5, 0x4ee0e6a1, 0x4bb0a1bf, 0xfcad60bb,
++   0x258b23b6, 0x9296e2b2, 0x2f2bad8a, 0x98366c8e, 0x41102f83, 0xf60dee87,
++   0xf35da999, 0x4440689d, 0x9d662b90, 0x2a7bea94, 0xe71db4e0, 0x500075e4,
++   0x892636e9, 0x3e3bf7ed, 0x3b6bb0f3, 0x8c7671f7, 0x555032fa, 0xe24df3fe,
++   0x5ff0bcc6, 0xe8ed7dc2, 0x31cb3ecf, 0x86d6ffcb, 0x8386b8d5, 0x349b79d1,
++   0xedbd3adc, 0x5aa0fbd8, 0xeee00c69, 0x59fdcd6d, 0x80db8e60, 0x37c64f64,
++   0x3296087a, 0x858bc97e, 0x5cad8a73, 0xebb04b77, 0x560d044f, 0xe110c54b,
++   0x38368646, 0x8f2b4742, 0x8a7b005c, 0x3d66c158, 0xe4408255, 0x535d4351,
++   0x9e3b1d25, 0x2926dc21, 0xf0009f2c, 0x471d5e28, 0x424d1936, 0xf550d832,
++   0x2c769b3f, 0x9b6b5a3b, 0x26d61503, 0x91cbd407, 0x48ed970a, 0xfff0560e,
++   0xfaa01110, 0x4dbdd014, 0x949b9319, 0x2386521d, 0x0e562ff1, 0xb94beef5,
++   0x606dadf8, 0xd7706cfc, 0xd2202be2, 0x653deae6, 0xbc1ba9eb, 0x0b0668ef,
++   0xb6bb27d7, 0x01a6e6d3, 0xd880a5de, 0x6f9d64da, 0x6acd23c4, 0xddd0e2c0,
++   0x04f6a1cd, 0xb3eb60c9, 0x7e8d3ebd, 0xc990ffb9, 0x10b6bcb4, 0xa7ab7db0,
++   0xa2fb3aae, 0x15e6fbaa, 0xccc0b8a7, 0x7bdd79a3, 0xc660369b, 0x717df79f,
++   0xa85bb492, 0x1f467596, 0x1a163288, 0xad0bf38c, 0x742db081, 0xc3307185,
++   0x99908a5d, 0x2e8d4b59, 0xf7ab0854, 0x40b6c950, 0x45e68e4e, 0xf2fb4f4a,
++   0x2bdd0c47, 0x9cc0cd43, 0x217d827b, 0x9660437f, 0x4f460072, 0xf85bc176,
++   0xfd0b8668, 0x4a16476c, 0x93300461, 0x242dc565, 0xe94b9b11, 0x5e565a15,
++   0x87701918, 0x306dd81c, 0x353d9f02, 0x82205e06, 0x5b061d0b, 0xec1bdc0f,
++   0x51a69337, 0xe6bb5233, 0x3f9d113e, 0x8880d03a, 0x8dd09724, 0x3acd5620,
++   0xe3eb152d, 0x54f6d429, 0x7926a9c5, 0xce3b68c1, 0x171d2bcc, 0xa000eac8,
++   0xa550add6, 0x124d6cd2, 0xcb6b2fdf, 0x7c76eedb, 0xc1cba1e3, 0x76d660e7,
++   0xaff023ea, 0x18ede2ee, 0x1dbda5f0, 0xaaa064f4, 0x738627f9, 0xc49be6fd,
++   0x09fdb889, 0xbee0798d, 0x67c63a80, 0xd0dbfb84, 0xd58bbc9a, 0x62967d9e,
++   0xbbb03e93, 0x0cadff97, 0xb110b0af, 0x060d71ab, 0xdf2b32a6, 0x6836f3a2,
++   0x6d66b4bc, 0xda7b75b8, 0x035d36b5, 0xb440f7b1};
++
++inline void swap_bytes(u_int32_t &crc)
++{
++  unsigned char a = crc >> 24;
++  unsigned char b = crc >> 16;
++  unsigned char c = crc >> 8;
++  unsigned char d = crc;
++
++  crc = ((d << 8 | c) << 8 | b) << 8 | a;
++}
+ 
+ u_int32_t CRC32::crc32 (const char *d, int len, u_int32_t crc)
+ {
+    register int i;
+    const unsigned char *u=(unsigned char*)d; // Saves '& 0xff'
+ 
++   swap_bytes(crc);
++
+    for (i=0; i<len; i++)
+-      crc = (crc << 8) ^ crc_table[((crc >> 24) ^ *u++)];
++      crc = (crc >> 8) ^ crc_table[(unsigned char)crc ^ *u++];
++
++   swap_bytes(crc);
+ 
+    return crc;
+ }
+diff -p -up vdr-1.6.0/lirc.c.orig vdr-1.6.0/lirc.c
+--- vdr-1.6.0/lirc.c.orig	2006-05-28 11:48:13.000000000 +0300
++++ vdr-1.6.0/lirc.c	2009-07-25 21:30:45.016842892 +0300
+@@ -13,10 +13,24 @@
+ #include <netinet/in.h>
+ #include <sys/socket.h>
+ 
+-#define REPEATDELAY 350 // ms
+-#define REPEATFREQ 100 // ms
+-#define REPEATTIMEOUT 500 // ms
+-#define RECONNECTDELAY 3000 // ms
++#ifndef LIRC_PUSHFREQ
++#define LIRC_PUSHFREQ 3 // 1/s
++#endif
++#ifndef LIRC_REPEATDELAY
++#define LIRC_REPEATDELAY 350 // ms
++#endif
++#ifndef LIRC_REPEATFREQ
++#define LIRC_REPEATFREQ 10 // 1/s
++#endif
++#ifndef LIRC_REPEATTIMEOUT
++#define LIRC_REPEATTIMEOUT 500 // ms
++#endif
++#ifndef LIRC_RECONNECTDELAY
++#define LIRC_RECONNECTDELAY 3000 // ms
++#endif
++#ifndef LIRC_PRIORITYBOOST
++#define LIRC_PRIORITYBOOST 0
++#endif
+ 
+ cLircRemote::cLircRemote(const char *DeviceName)
+ :cRemote("LIRC")
+@@ -68,17 +82,33 @@ void cLircRemote::Action(void)
+   bool repeat = false;
+   int timeout = -1;
+ 
++  if (LIRC_PRIORITYBOOST)
++     SetPriority(GetPriority() - LIRC_PRIORITYBOOST);
+   while (Running() && f >= 0) {
+-
+         bool ready = cFile::FileReady(f, timeout);
+-        int ret = ready ? safe_read(f, buf, sizeof(buf)) : -1;
++        int ret = -1;
++        if (ready) {
++           // read one line of the line oriented lirc protocol
++           for (ret = 0; ret < (int)sizeof(buf); ret++) {
++               int ch = readchar(f);
++               if (ch < 0) {
++                  ret = -1;
++                  break;
++                  }
++               if (ch == '\n') {
++                  buf[ret++] = '\0';
++                  break;
++                  }
++               buf[ret] = ch;
++               }
++           }
+ 
+         if (ready && ret <= 0 ) {
+-           esyslog("ERROR: lircd connection broken, trying to reconnect every %.1f seconds", float(RECONNECTDELAY) / 1000);
++           esyslog("ERROR: lircd connection broken, trying to reconnect every %.1f seconds", float(LIRC_RECONNECTDELAY) / 1000);
+            close(f);
+            f = -1;
+            while (Running() && f < 0) {
+-                 cCondWait::SleepMs(RECONNECTDELAY);
++                 cCondWait::SleepMs(LIRC_RECONNECTDELAY);
+                  if (Connect()) {
+                     isyslog("reconnected to lircd");
+                     break;
+@@ -94,7 +124,7 @@ void cLircRemote::Action(void)
+               continue;
+               }
+            if (count == 0) {
+-              if (strcmp(KeyName, LastKeyName) == 0 && FirstTime.Elapsed() < REPEATDELAY)
++              if (strcmp(KeyName, LastKeyName) == 0 && FirstTime.Elapsed() < (1000 / LIRC_PUSHFREQ))
+                  continue; // skip keys coming in too fast
+               if (repeat)
+                  Put(LastKeyName, false, true);
+@@ -104,18 +134,18 @@ void cLircRemote::Action(void)
+               timeout = -1;
+               }
+            else {
+-              if (LastTime.Elapsed() < REPEATFREQ)
++              if (LastTime.Elapsed() < (1000 / LIRC_REPEATFREQ))
+                  continue; // repeat function kicks in after a short delay (after last key instead of first key)
+-              if (FirstTime.Elapsed() < REPEATDELAY)
++              if (FirstTime.Elapsed() < LIRC_REPEATDELAY)
+                  continue; // skip keys coming in too fast (for count != 0 as well)
+               repeat = true;
+-              timeout = REPEATDELAY;
++              timeout = LIRC_REPEATDELAY;
+               }
+            LastTime.Set();
+            Put(KeyName, repeat);
+            }
+         else if (repeat) { // the last one was a repeat, so let's generate a release
+-           if (LastTime.Elapsed() >= REPEATTIMEOUT) {
++           if (LastTime.Elapsed() >= LIRC_REPEATTIMEOUT) {
+               Put(LastKeyName, false, true);
+               repeat = false;
+               *LastKeyName = 0;
+diff -p -up vdr-1.6.0/Makefile.orig vdr-1.6.0/Makefile
+--- vdr-1.6.0/Makefile.orig	2009-07-25 21:22:31.741844413 +0300
++++ vdr-1.6.0/Makefile	2009-07-25 21:30:45.020842718 +0300
+@@ -41,7 +41,7 @@ OBJS = audio.o channels.o ci.o config.o 
+        lirc.o menu.o menuitems.o nit.o osdbase.o osd.o pat.o player.o plugin.o rcu.o\
+        receiver.o recorder.o recording.o remote.o remux.o ringbuffer.o sdt.o sections.o shutdown.o\
+        skinclassic.o skins.o skinsttng.o sources.o spu.o status.o svdrp.o themes.o thread.o\
+-       timers.o tools.o transfer.o vdr.o videodir.o
++       timers.o tools.o transfer.o vdr.o videodir.o h264parser.o
+ 
+ OBJS += vdrttxtsubshooks.o
+ 
+@@ -62,6 +62,25 @@ RCU_DEVICE  ?= /dev/ttyS1
+ 
+ DEFINES += -DLIRC_DEVICE=\"$(LIRC_DEVICE)\" -DRCU_DEVICE=\"$(RCU_DEVICE)\"
+ 
++ifdef LIRC_PUSHFREQ
++DEFINES += -DLIRC_PUSHFREQ=$(LIRC_PUSHFREQ)
++endif
++ifdef LIRC_REPEATDELAY
++DEFINES += -DLIRCD_REPEATDELAY=$(LIRC_REPEATDELAY)
++endif
++ifdef LIRC_REPEATFREQ
++DEFINES += -DLIRC_REPEATFREQ=$(LIRC_REPEATFREQ)
++endif
++ifdef LIRC_REPEATTIMEOUT
++DEFINES += -DLIRC_REPEATTIMEOUT=$(LIRC_REPEATTIMEOUT)
++endif
++ifdef LIRC_RECONNECTDELAY
++DEFINES += -DLIRC_RECONNECTDELAY=$(LIRC_RECONNECTDELAY)
++endif
++ifdef LIRC_PRIORITYBOOST
++DEFINES += -DLIRC_PRIORITYBOOST=$(LIRC_PRIORITYBOOST)
++endif
++
+ DEFINES += -D_GNU_SOURCE
+ 
+ DEFINES += -DVIDEODIR=\"$(VIDEODIR)\"
+diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
+--- vdr-1.6.0/menu.c.orig	2009-07-25 21:30:44.268094382 +0300
++++ vdr-1.6.0/menu.c	2009-07-25 21:30:45.030845083 +0300
+@@ -4778,7 +4778,7 @@ bool cReplayControl::ShowProgress(bool I
+         lastCurrent = lastTotal = -1;
+         }
+      if (Total != lastTotal) {
+-        displayReplay->SetTotal(IndexToHMSF(Total));
++        displayReplay->SetTotal(IndexToHMSF(Total, false, GetFramesPerSec()));
+         if (!Initial)
+            displayReplay->Flush();
+         }
+@@ -4786,7 +4786,7 @@ bool cReplayControl::ShowProgress(bool I
+         displayReplay->SetProgress(Current, Total);
+         if (!Initial)
+            displayReplay->Flush();
+-        displayReplay->SetCurrent(IndexToHMSF(Current, displayFrames));
++        displayReplay->SetCurrent(IndexToHMSF(Current, displayFrames, GetFramesPerSec()));
+         displayReplay->Flush();
+         lastCurrent = Current;
+         }
+@@ -4819,8 +4819,8 @@ void cReplayControl::TimeSearchProcess(e
+ {
+ #define STAY_SECONDS_OFF_END 10
+   int Seconds = (timeSearchTime >> 24) * 36000 + ((timeSearchTime & 0x00FF0000) >> 16) * 3600 + ((timeSearchTime & 0x0000FF00) >> 8) * 600 + (timeSearchTime & 0x000000FF) * 60;
+-  int Current = (lastCurrent / FRAMESPERSEC);
+-  int Total = (lastTotal / FRAMESPERSEC);
++  int Current = (lastCurrent / GetFramesPerSec());
++  int Total = (lastTotal / GetFramesPerSec());
+   switch (Key) {
+     case k0 ... k9:
+          if (timeSearchPos < 4) {
+@@ -4847,7 +4847,7 @@ void cReplayControl::TimeSearchProcess(e
+     case kDown:
+     case kOk:
+          Seconds = min(Total - STAY_SECONDS_OFF_END, Seconds);
+-         Goto(Seconds * FRAMESPERSEC, Key == kDown || Key == kPause || Key == kOk);
++         Goto(Seconds * GetFramesPerSec(), Key == kDown || Key == kPause || Key == kOk);
+          timeSearchActive = false;
+          break;
+     default:
+@@ -4980,7 +4980,7 @@ void cReplayControl::EditTest(void)
+         if ((m->Index() & 0x01) != 0 && !Setup.PlayJump)
+            m = marks.Next(m);
+         if (m) {
+-           Goto(m->position - SecondsToFrames(3));
++           Goto(m->position - SecondsToFrames(3, GetFramesPerSec()));
+            Play();
+            }
+         }
+diff -p -up vdr-1.6.0/nit.c.orig vdr-1.6.0/nit.c
+--- vdr-1.6.0/nit.c.orig	2008-02-08 15:48:31.000000000 +0200
++++ vdr-1.6.0/nit.c	2009-07-25 21:30:45.044843435 +0300
+@@ -142,21 +142,20 @@ void cNitFilter::Process(u_short Pid, u_
+                     }
+                  if (Setup.UpdateChannels >= 5) {
+                     bool found = false;
+-                    for (cChannel *Channel = Channels.First(); Channel; Channel = Channels.Next(Channel)) {
+-                        if (!Channel->GroupSep() && Channel->Source() == Source && Channel->Nid() == ts.getOriginalNetworkId() && Channel->Tid() == ts.getTransportStreamId()) {
+-                           int transponder = Channel->Transponder();
+-                           found = true;
+-                           if (!ISTRANSPONDER(cChannel::Transponder(Frequency, Polarization), transponder)) {
+-                              for (int n = 0; n < NumFrequencies; n++) {
+-                                  if (ISTRANSPONDER(cChannel::Transponder(Frequencies[n], Polarization), transponder)) {
+-                                     Frequency = Frequencies[n];
+-                                     break;
+-                                     }
++                    cIterator<cChannel> ChannelIterator = Channels.GetChannelsBySourceNidTid(Source, ts.getOriginalNetworkId(), ts.getTransportStreamId());
++                    for (cChannel *Channel = ChannelIterator.First(); Channel; Channel = ChannelIterator.Next()) {
++                        int transponder = Channel->Transponder();
++                        found = true;
++                        if (!ISTRANSPONDER(cChannel::Transponder(Frequency, Polarization), transponder)) {
++                           for (int n = 0; n < NumFrequencies; n++) {
++                               if (ISTRANSPONDER(cChannel::Transponder(Frequencies[n], Polarization), transponder)) {
++                                  Frequency = Frequencies[n];
++                                  break;
+                                   }
+-                              }
+-                           if (ISTRANSPONDER(cChannel::Transponder(Frequency, Polarization), Transponder())) // only modify channels if we're actually receiving this transponder
+-                              Channel->SetSatTransponderData(Source, Frequency, Polarization, SymbolRate, CodeRate);
++                               }
+                            }
++                        if (ISTRANSPONDER(cChannel::Transponder(Frequency, Polarization), Transponder())) // only modify channels if we're actually receiving this transponder
++                           Channel->SetSatTransponderData(Source, Frequency, Polarization, SymbolRate, CodeRate);
+                         }
+                     if (!found) {
+                        for (int n = 0; n < NumFrequencies; n++) {
+@@ -193,21 +192,20 @@ void cNitFilter::Process(u_short Pid, u_
+                     }
+                  if (Setup.UpdateChannels >= 5) {
+                     bool found = false;
+-                    for (cChannel *Channel = Channels.First(); Channel; Channel = Channels.Next(Channel)) {
+-                        if (!Channel->GroupSep() && Channel->Source() == Source && Channel->Nid() == ts.getOriginalNetworkId() && Channel->Tid() == ts.getTransportStreamId()) {
+-                           int transponder = Channel->Transponder();
+-                           found = true;
+-                           if (!ISTRANSPONDER(Frequency / 1000, transponder)) {
+-                              for (int n = 0; n < NumFrequencies; n++) {
+-                                  if (ISTRANSPONDER(Frequencies[n] / 1000, transponder)) {
+-                                     Frequency = Frequencies[n];
+-                                     break;
+-                                     }
++                    cIterator<cChannel> ChannelIterator = Channels.GetChannelsBySourceNidTid(Source, ts.getOriginalNetworkId(), ts.getTransportStreamId());
++                    for (cChannel *Channel = ChannelIterator.First(); Channel; Channel = ChannelIterator.Next()) {
++                        int transponder = Channel->Transponder();
++                        found = true;
++                        if (!ISTRANSPONDER(Frequency / 1000, transponder)) {
++                           for (int n = 0; n < NumFrequencies; n++) {
++                               if (ISTRANSPONDER(Frequencies[n] / 1000, transponder)) {
++                                  Frequency = Frequencies[n];
++                                  break;
+                                   }
+-                              }
+-                           if (ISTRANSPONDER(Frequency / 1000, Transponder())) // only modify channels if we're actually receiving this transponder
+-                              Channel->SetCableTransponderData(Source, Frequency, Modulation, SymbolRate, CodeRate);
++                               }
+                            }
++                        if (ISTRANSPONDER(Frequency / 1000, Transponder())) // only modify channels if we're actually receiving this transponder
++                           Channel->SetCableTransponderData(Source, Frequency, Modulation, SymbolRate, CodeRate);
+                         }
+                     if (!found) {
+                         for (int n = 0; n < NumFrequencies; n++) {
+@@ -251,21 +249,20 @@ void cNitFilter::Process(u_short Pid, u_
+                     }
+                  if (Setup.UpdateChannels >= 5) {
+                     bool found = false;
+-                    for (cChannel *Channel = Channels.First(); Channel; Channel = Channels.Next(Channel)) {
+-                        if (!Channel->GroupSep() && Channel->Source() == Source && Channel->Nid() == ts.getOriginalNetworkId() && Channel->Tid() == ts.getTransportStreamId()) {
+-                           int transponder = Channel->Transponder();
+-                           found = true;
+-                           if (!ISTRANSPONDER(Frequency / 1000000, transponder)) {
+-                              for (int n = 0; n < NumFrequencies; n++) {
+-                                  if (ISTRANSPONDER(Frequencies[n] / 1000000, transponder)) {
+-                                     Frequency = Frequencies[n];
+-                                     break;
+-                                     }
++                    cIterator<cChannel> ChannelIterator = Channels.GetChannelsBySourceNidTid(Source, ts.getOriginalNetworkId(), ts.getTransportStreamId());
++                    for (cChannel *Channel = ChannelIterator.First(); Channel; Channel = ChannelIterator.Next()) {
++                        int transponder = Channel->Transponder();
++                        found = true;
++                        if (!ISTRANSPONDER(Frequency / 1000000, transponder)) {
++                           for (int n = 0; n < NumFrequencies; n++) {
++                               if (ISTRANSPONDER(Frequencies[n] / 1000000, transponder)) {
++                                  Frequency = Frequencies[n];
++                                  break;
+                                   }
+-                              }
+-                           if (ISTRANSPONDER(Frequency / 1000000, Transponder())) // only modify channels if we're actually receiving this transponder
+-                              Channel->SetTerrTransponderData(Source, Frequency, Bandwidth, Constellation, Hierarchy, CodeRateHP, CodeRateLP, GuardInterval, TransmissionMode);
++                               }
+                            }
++                        if (ISTRANSPONDER(Frequency / 1000000, Transponder())) // only modify channels if we're actually receiving this transponder
++                           Channel->SetTerrTransponderData(Source, Frequency, Bandwidth, Constellation, Hierarchy, CodeRateHP, CodeRateLP, GuardInterval, TransmissionMode);
+                         }
+                     if (!found) {
+                        for (int n = 0; n < NumFrequencies; n++) {
+@@ -276,7 +273,7 @@ void cNitFilter::Process(u_short Pid, u_
+                            else
+                               delete Channel;
+                            }
+-                        }
++                       }
+                     }
+                  }
+                  break;
+diff -p -up vdr-1.6.0/osd.c.orig vdr-1.6.0/osd.c
+--- vdr-1.6.0/osd.c.orig	2009-07-25 21:22:30.879843810 +0300
++++ vdr-1.6.0/osd.c	2009-07-25 21:30:45.093843617 +0300
+@@ -218,6 +218,8 @@ bool cBitmap::Contains(int x, int y) con
+ 
+ bool cBitmap::Covers(int x1, int y1, int x2, int y2) const
+ {
++  if (x1 > x2 || y1 > y2) // sanity check
++     return false;
+   x1 -= x0;
+   y1 -= y0;
+   x2 -= x0;
+@@ -227,6 +229,8 @@ bool cBitmap::Covers(int x1, int y1, int
+ 
+ bool cBitmap::Intersects(int x1, int y1, int x2, int y2) const
+ {
++  if (x1 > x2 || y1 > y2) // sanity check
++     return false;
+   x1 -= x0;
+   y1 -= y0;
+   x2 -= x0;
+@@ -395,15 +399,20 @@ bool cBitmap::SetXpm(const char *const X
+ void cBitmap::SetIndex(int x, int y, tIndex Index)
+ {
+   if (bitmap) {
+-     if (0 <= x && x < width && 0 <= y && y < height) {
+-        if (bitmap[width * y + x] != Index) {
+-           bitmap[width * y + x] = Index;
+-           if (dirtyX1 > x)  dirtyX1 = x;
+-           if (dirtyY1 > y)  dirtyY1 = y;
+-           if (dirtyX2 < x)  dirtyX2 = x;
+-           if (dirtyY2 < y)  dirtyY2 = y;
+-           }
+-        }
++     if (0 <= x && x < width && 0 <= y && y < height)
++        SetIndexInternal(x, y, Index);
++     }
++}
++
++void cBitmap::SetIndexInternal(int x, int y, tIndex Index)
++{
++  // this function relies on existing bitmap and valid coordinates
++  if (bitmap[width * y + x] != Index) {
++     bitmap[width * y + x] = Index;
++     if (dirtyX1 > x)  dirtyX1 = x;
++     if (dirtyY1 > y)  dirtyY1 = y;
++     if (dirtyX2 < x)  dirtyX2 = x;
++     if (dirtyY2 < y)  dirtyY2 = y;
+      }
+ }
+ 
+@@ -411,37 +420,147 @@ void cBitmap::DrawPixel(int x, int y, tC
+ {
+   x -= x0;
+   y -= y0;
+-  if (0 <= x && x < width && 0 <= y && y < height)
+-     SetIndex(x, y, Index(Color));
++  if (bitmap && 0 <= x && x < width && 0 <= y && y < height)
++     SetIndexInternal(x, y, Index(Color));
+ }
+ 
+ void cBitmap::DrawBitmap(int x, int y, const cBitmap &Bitmap, tColor ColorFg, tColor ColorBg, bool ReplacePalette, bool Overlay)
+ {
+   if (bitmap && Bitmap.bitmap && Intersects(x, y, x + Bitmap.Width() - 1, y + Bitmap.Height() - 1)) {
+-     if (Covers(x, y, x + Bitmap.Width() - 1, y + Bitmap.Height() - 1))
++     bool Covered = Covers(x, y, x + Bitmap.Width() - 1, y + Bitmap.Height() - 1);
++     if (Covered)
+         Reset();
+      x -= x0;
+      y -= y0;
+-     if (ReplacePalette && Covers(x + x0, y + y0, x + x0 + Bitmap.Width() - 1, y + y0 + Bitmap.Height() - 1)) {
++     // determine valid destination area [x1,x2]x[y1,y2] to avoid range checks inside the loops
++     int x1 = max(0, x), x2 = min(0 + width , x + Bitmap.width)  - 1;
++     int y1 = max(0, y), y2 = min(0 + height, y + Bitmap.height) - 1;
++
++#define FOR_Y_LOOP0                                                                                              \
++        tIndex *pRowSrc = &Bitmap.bitmap[Bitmap.width * (y1 - y) + (x1 - x)];                                    \
++        tIndex *pRowDst = &bitmap[width * y1 + x1];                                                              \
++        for (int &yy = y1, ye = min(y2, dirtyY1 - 1); yy <= ye; yy++, pRowDst += width, pRowSrc += Bitmap.width)
++
++#define FOR_Y_LOOP1                                                                                              \
++        tIndex *pRowSrc = &Bitmap.bitmap[Bitmap.width * (y2 - y) + (x1 - x)];                                    \
++        tIndex *pRowDst = &bitmap[width * y2 + x1];                                                              \
++        for (int &yy = y2, ye = max(y1, dirtyY2 + 1); yy >= ye; yy--, pRowDst -= width, pRowSrc -= Bitmap.width)
++
++#define DETECT_DIRTY_AREA_Y(Reverse, TransferCondition, TransferOperation) \
++     do {                                                                  \
++        FOR_Y_LOOP##Reverse {                                              \
++            tIndex *pSrc = pRowSrc;                                        \
++            tIndex *pDst = pRowDst;                                        \
++            bool GotDirty = false;                                         \
++            for (int xx = x1; xx <= x2; xx++) {                            \
++                if (TransferCondition) {                                   \
++                   if (*pDst != TransferOperation) {                       \
++                      GotDirty = true;                                     \
++                      if (dirtyX1 > xx)  dirtyX1 = xx;                     \
++                      if (dirtyX2 < xx)  dirtyX2 = xx;                     \
++                      }                                                    \
++                   }                                                       \
++                pSrc++;                                                    \
++                pDst++;                                                    \
++                }                                                          \
++            if (GotDirty) {                                                \
++               if (dirtyY1 > yy)  dirtyY1 = yy;                            \
++               if (dirtyY2 < yy)  dirtyY2 = yy;                            \
++               break;                                                      \
++               }                                                           \
++            }                                                              \
++        }                                                                  \
++     while (false)
++
++#define FOR_X_LOOP0                                                                         \
++        tIndex *pColSrc = &Bitmap.bitmap[Bitmap.width * (y1 - y) + (x1 - x)];               \
++        tIndex *pColDst = &bitmap[width * y1 + x1];                                         \
++        for (int &xx = x1, xe = min(x2, dirtyX1 - 1); xx <= xe; xx++, pColDst++, pColSrc++)
++
++#define FOR_X_LOOP1                                                                         \
++        tIndex *pColSrc = &Bitmap.bitmap[Bitmap.width * (y1 - y) + (x2 - x)];               \
++        tIndex *pColDst = &bitmap[width * y1 + x2];                                         \
++        for (int &xx = x2, xe = max(x1, dirtyX2 + 1); xx >= xe; xx--, pColDst--, pColSrc--)
++
++#define DETECT_DIRTY_AREA_X(Reverse, TransferCondition, TransferOperation) \
++     do {                                                                  \
++        FOR_X_LOOP##Reverse {                                              \
++            tIndex *pSrc = pColSrc;                                        \
++            tIndex *pDst = pColDst;                                        \
++            bool GotDirty = false;                                         \
++            for (int yy = y1; yy <= y2; yy++) {                            \
++                if (TransferCondition) {                                   \
++                   if (*pDst != TransferOperation) {                       \
++                      GotDirty = true;                                     \
++                      if (dirtyX1 > xx)  dirtyX1 = xx;                     \
++                      if (dirtyX2 < xx)  dirtyX2 = xx;                     \
++                      break;                                               \
++                      }                                                    \
++                   }                                                       \
++                pSrc += Bitmap.width;                                      \
++                pDst += width;                                             \
++                }                                                          \
++            if (GotDirty)                                                  \
++               break;                                                      \
++            }                                                              \
++        }                                                                  \
++     while (false)
++
++#define DRAW_BITMAP(TransferCondition, TransferOperation, CanUseMemCpy)           \
++     do {                                                                         \
++        DETECT_DIRTY_AREA_Y(0, TransferCondition, TransferOperation); /* above */ \
++        DETECT_DIRTY_AREA_Y(1, TransferCondition, TransferOperation); /* below */ \
++        if (y2 < y1) /* nothing dirty */                                          \
++           return;                                                                \
++        DETECT_DIRTY_AREA_X(0, TransferCondition, TransferOperation); /* left  */ \
++        DETECT_DIRTY_AREA_X(1, TransferCondition, TransferOperation); /* right */ \
++        /* process dirty area now */                                              \
++        tIndex *pRowSrc = &Bitmap.bitmap[Bitmap.width * (y1 - y) + (x1 - x)];     \
++        tIndex *pRowDst = &bitmap[width * y1 + x1];                               \
++        int n = sizeof(tIndex) * (x2 - x1 + 1);                                   \
++        for (int yy = y1; yy <= y2; yy++) {                                       \
++            tIndex *pSrc = pRowSrc;                                               \
++            tIndex *pDst = pRowDst;                                               \
++            if (CanUseMemCpy)                                                     \
++               memcpy(pDst, pSrc, n);                                             \
++            else {                                                                \
++               for (int xx = x1; xx <= x2; xx++) {                                \
++                   if (TransferCondition)                                         \
++                      *pDst = TransferOperation;                                  \
++                   pSrc++;                                                        \
++                   pDst++;                                                        \
++                   }                                                              \
++               }                                                                  \
++            pRowSrc += Bitmap.width;                                              \
++            pRowDst += width;                                                     \
++            }                                                                     \
++        }                                                                         \
++     while (false)
++
++     if (ReplacePalette && Covered) {
+         Replace(Bitmap);
+-        for (int ix = 0; ix < Bitmap.width; ix++) {
+-            for (int iy = 0; iy < Bitmap.height; iy++) {
+-                if (!Overlay || Bitmap.bitmap[Bitmap.width * iy + ix] != 0)
+-                   SetIndex(x + ix, y + iy, Bitmap.bitmap[Bitmap.width * iy + ix]);
+-                }
+-            }
++        if (Overlay)
++           DRAW_BITMAP(*pSrc != 0, *pSrc, false);
++        else
++           DRAW_BITMAP(true, *pSrc, true);
+         }
+      else {
+         tIndexes Indexes;
+         Take(Bitmap, &Indexes, ColorFg, ColorBg);
+-        for (int ix = 0; ix < Bitmap.width; ix++) {
+-            for (int iy = 0; iy < Bitmap.height; iy++) {
+-                if (!Overlay || Bitmap.bitmap[Bitmap.width * iy + ix] != 0)
+-                   SetIndex(x + ix, y + iy, Indexes[int(Bitmap.bitmap[Bitmap.width * iy + ix])]);
+-                }
+-            }
++        if (Overlay)
++           DRAW_BITMAP(*pSrc != 0, Indexes[(int)*pSrc], false);
++        else
++           DRAW_BITMAP(true, Indexes[(int)*pSrc], false);
+         }
+      }
++
++#undef DRAW_BITMAP
++#undef DETECT_DIRTY_AREA_Y
++#undef FOR_Y_LOOP0
++#undef FOR_Y_LOOP1
++#undef DETECT_DIRTY_AREA_X
++#undef FOR_X_LOOP0
++#undef FOR_X_LOOP1
+ }
+ 
+ void cBitmap::DrawText(int x, int y, const char *s, tColor ColorFg, tColor ColorBg, const cFont *Font, int Width, int Height, int Alignment)
+@@ -503,10 +622,91 @@ void cBitmap::DrawRectangle(int x1, int 
+      x2 = min(x2, width - 1);
+      y2 = min(y2, height - 1);
+      tIndex c = Index(Color);
+-     for (int y = y1; y <= y2; y++)
+-         for (int x = x1; x <= x2; x++)
+-             SetIndex(x, y, c);
++
++#define FOR_Y_LOOP0                                                                     \
++        tIndex *pRowDst = &bitmap[width * y1 + x1];                                     \
++        for (int &yy = y1, ye = min(y2, dirtyY1 - 1); yy <= ye; yy++, pRowDst += width)
++
++#define FOR_Y_LOOP1                                                                     \
++        tIndex *pRowDst = &bitmap[width * y2 + x1];                                     \
++        for (int &yy = y2, ye = max(y1, dirtyY2 + 1); yy >= ye; yy--, pRowDst -= width)
++
++#define DETECT_DIRTY_AREA_Y(Reverse)                \
++     do {                                           \
++        FOR_Y_LOOP##Reverse {                       \
++            tIndex *pDst = pRowDst;                 \
++            bool GotDirty = false;                  \
++            for (int xx = x1; xx <= x2; xx++) {     \
++                if (*pDst != c) {                   \
++                   GotDirty = true;                 \
++                   if (dirtyX1 > xx)  dirtyX1 = xx; \
++                   if (dirtyX2 < xx)  dirtyX2 = xx; \
++                   }                                \
++                pDst++;                             \
++                }                                   \
++            if (GotDirty) {                         \
++               if (dirtyY1 > yy)  dirtyY1 = yy;     \
++               if (dirtyY2 < yy)  dirtyY2 = yy;     \
++               break;                               \
++               }                                    \
++            }                                       \
++        }                                           \
++     while (false)
++
++#define FOR_X_LOOP0                                                              \
++        tIndex *pColDst = &bitmap[width * y1 + x1];                              \
++        for (int &xx = x1, xe = min(x2, dirtyX1 - 1); xx <= xe; xx++, pColDst++)
++
++#define FOR_X_LOOP1                                                              \
++        tIndex *pColDst = &bitmap[width * y1 + x2];                              \
++        for (int &xx = x2, xe = max(x1, dirtyX2 + 1); xx >= xe; xx--, pColDst--)
++
++#define DETECT_DIRTY_AREA_X(Reverse)                \
++     do {                                           \
++        FOR_X_LOOP##Reverse {                       \
++            tIndex *pDst = pColDst;                 \
++            bool GotDirty = false;                  \
++            for (int yy = y1; yy <= y2; yy++) {     \
++                if (*pDst != c) {                   \
++                   GotDirty = true;                 \
++                   if (dirtyX1 > xx)  dirtyX1 = xx; \
++                   if (dirtyX2 < xx)  dirtyX2 = xx; \
++                   break;                           \
++                   }                                \
++                pDst += width;                      \
++                }                                   \
++            if (GotDirty)                           \
++               break;                               \
++            }                                       \
++        }                                           \
++     while (false)
++
++     DETECT_DIRTY_AREA_Y(0); /* above */
++     DETECT_DIRTY_AREA_Y(1); /* below */
++     if (y2 < y1) /* nothing dirty */
++        return;
++     DETECT_DIRTY_AREA_X(0); /* left  */
++     DETECT_DIRTY_AREA_X(1); /* right */
++     // now fill only dirty area of rectangle
++     tIndex *pRowDst = &bitmap[width * y1 + x1];
++     tIndex *pDst = pRowDst;
++     for (int x = x1; x <= x2; x++)
++         *pDst++ = c;
++     // copy the single line above to all other lines
++     tIndex *pRowSrc = pRowDst;
++     int n = sizeof(tIndex) * (x2 - x1 + 1);
++     for (int y = y1 + 1; y <= y2; y++) {
++         pRowDst += width;
++         memcpy(pRowDst, pRowSrc, n);
++         }
+      }
++
++#undef DETECT_DIRTY_AREA_Y
++#undef FOR_Y_LOOP0
++#undef FOR_Y_LOOP1
++#undef DETECT_DIRTY_AREA_X
++#undef FOR_X_LOOP0
++#undef FOR_X_LOOP1
+ }
+ 
+ void cBitmap::DrawEllipse(int x1, int y1, int x2, int y2, tColor Color, int Quadrants)
+diff -p -up vdr-1.6.0/osd.h.orig vdr-1.6.0/osd.h
+--- vdr-1.6.0/osd.h.orig	2009-07-25 21:22:30.883841475 +0300
++++ vdr-1.6.0/osd.h	2009-07-25 21:30:45.100843154 +0300
+@@ -135,6 +135,7 @@ private:
+   int x0, y0;
+   int width, height;
+   int dirtyX1, dirtyY1, dirtyX2, dirtyY2;
++  void SetIndexInternal(int x, int y, tIndex Index);
+ public:
+   cBitmap(int Width, int Height, int Bpp, int X0 = 0, int Y0 = 0);
+        ///< Creates a bitmap with the given Width, Height and color depth (Bpp).
+diff -p -up vdr-1.6.0/pat.c.orig vdr-1.6.0/pat.c
+--- vdr-1.6.0/pat.c.orig	2008-02-08 15:48:31.000000000 +0200
++++ vdr-1.6.0/pat.c	2009-07-25 21:30:45.106843533 +0300
+@@ -343,6 +343,7 @@ void cPatFilter::Process(u_short Pid, u_
+             switch (stream.getStreamType()) {
+               case 1: // STREAMTYPE_11172_VIDEO
+               case 2: // STREAMTYPE_13818_VIDEO
++              case 0x1B: // MPEG4
+                       Vpid = stream.getPid();
+                       break;
+               case 3: // STREAMTYPE_11172_AUDIO
+diff -p -up vdr-1.6.0/recording.c.orig vdr-1.6.0/recording.c
+--- vdr-1.6.0/recording.c.orig	2009-07-25 21:29:14.594093120 +0300
++++ vdr-1.6.0/recording.c	2009-07-25 21:30:45.112843113 +0300
+@@ -1627,11 +1627,11 @@ cUnbufferedFile *cFileName::NextFile(voi
+ 
+ // --- Index stuff -----------------------------------------------------------
+ 
+-cString IndexToHMSF(int Index, bool WithFrame)
++cString IndexToHMSF(int Index, bool WithFrame, int FramesPerSec)
+ {
+   char buffer[16];
+-  int f = (Index % FRAMESPERSEC) + 1;
+-  int s = (Index / FRAMESPERSEC);
++  int f = (Index % FramesPerSec) + 1;
++  int s = (Index / FramesPerSec);
+   int m = s / 60 % 60;
+   int h = s / 3600;
+   s %= 60;
+@@ -1639,17 +1639,17 @@ cString IndexToHMSF(int Index, bool With
+   return buffer;
+ }
+ 
+-int HMSFToIndex(const char *HMSF)
++int HMSFToIndex(const char *HMSF, int FramesPerSec)
+ {
+   int h, m, s, f = 0;
+   if (3 <= sscanf(HMSF, "%d:%d:%d.%d", &h, &m, &s, &f))
+-     return (h * 3600 + m * 60 + s) * FRAMESPERSEC + f - 1;
++     return (h * 3600 + m * 60 + s) * FramesPerSec + f - 1;
+   return 0;
+ }
+ 
+-int SecondsToFrames(int Seconds)
++int SecondsToFrames(int Seconds, int FramesPerSec)
+ {
+-  return Seconds * FRAMESPERSEC;
++  return Seconds * FramesPerSec;
+ }
+ 
+ // --- ReadFrame -------------------------------------------------------------
+diff -p -up vdr-1.6.0/recording.h.orig vdr-1.6.0/recording.h
+--- vdr-1.6.0/recording.h.orig	2009-07-25 21:29:14.602093253 +0300
++++ vdr-1.6.0/recording.h	2009-07-25 21:30:45.119843289 +0300
+@@ -258,11 +258,11 @@ public:
+   cUnbufferedFile *NextFile(void);
+   };
+ 
+-cString IndexToHMSF(int Index, bool WithFrame = false);
++cString IndexToHMSF(int Index, bool WithFrame = false, int FramesPerSec = FRAMESPERSEC);
+       // Converts the given index to a string, optionally containing the frame number.
+-int HMSFToIndex(const char *HMSF);
++int HMSFToIndex(const char *HMSF, int FramesPerSec = FRAMESPERSEC);
+       // Converts the given string (format: "hh:mm:ss.ff") to an index.
+-int SecondsToFrames(int Seconds); //XXX+ ->player???
++int SecondsToFrames(int Seconds, int FramesPerSec = FRAMESPERSEC); //XXX+ ->player???
+       // Returns the number of frames corresponding to the given number of seconds.
+ 
+ int ReadFrame(cUnbufferedFile *f, uchar *b, int Length, int Max);
+diff -p -up vdr-1.6.0/remux.c.orig vdr-1.6.0/remux.c
+--- vdr-1.6.0/remux.c.orig	2007-11-25 15:56:03.000000000 +0200
++++ vdr-1.6.0/remux.c	2009-07-25 21:30:45.129844215 +0300
+@@ -19,6 +19,8 @@
+ #include "channels.h"
+ #include "shutdown.h"
+ #include "tools.h"
++#include "recording.h"
++#include "h264parser.h"
+ 
+ ePesHeader AnalyzePesHeader(const uchar *Data, int Count, int &PesPayloadOffset, bool *ContinuationHeader)
+ {
+@@ -100,8 +102,9 @@ protected:
+   int suppressedLogMessages;
+   bool LogAllowed(void);
+   void DroppedData(const char *Reason, int Count) { LOG("%s (dropped %d bytes)", Reason, Count); }
++  virtual int Put(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded);
+ public:
+-  static int Put(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded);
++  static int PutAllOrNothing(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded);
+   cRepacker(void);
+   virtual ~cRepacker() {}
+   virtual void Reset(void) { initiallySyncing = true; }
+@@ -138,6 +141,11 @@ bool cRepacker::LogAllowed(void)
+ 
+ int cRepacker::Put(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded)
+ {
++  return PutAllOrNothing(ResultBuffer, Data, Count, CapacityNeeded);
++}
++
++int cRepacker::PutAllOrNothing(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded)
++{
+   if (CapacityNeeded >= Count && ResultBuffer->Free() < CapacityNeeded) {
+      esyslog("ERROR: possible result buffer overflow, dropped %d out of %d byte", CapacityNeeded, CapacityNeeded);
+      return 0;
+@@ -156,7 +164,7 @@ protected:
+   int packetTodo;
+   uchar fragmentData[6 + 65535 + 3];
+   int fragmentLen;
+-  uchar pesHeader[6 + 3 + 255 + 3];
++  uchar pesHeader[6 + 3 + 255 + 5 + 3]; // 5: H.264 AUD
+   int pesHeaderLen;
+   uchar pesHeaderBackup[6 + 3 + 255];
+   int pesHeaderBackupLen;
+@@ -164,7 +172,7 @@ protected:
+   uint32_t localScanner;
+   int localStart;
+   bool PushOutPacket(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count);
+-  virtual int QuerySnoopSize() { return 4; }
++  virtual int QuerySnoopSize(void) { return 4; }
+   virtual void Reset(void);
+   };
+ 
+@@ -238,8 +246,139 @@ bool cCommonRepacker::PushOutPacket(cRin
+   return true;
+ }
+ 
++// --- cAudGenerator ---------------------------------------------------------
++
++class cAudGenerator {
++private:
++  H264::cSimpleBuffer buffer;
++  int overflowByteCount;
++  H264::cSliceHeader::eAccessUnitType accessUnitType;
++  int sliceTypes;
++public:
++  cAudGenerator(void);
++  void CollectSliceType(const H264::cSliceHeader *SH);
++  int CollectData(const uchar *Data, int Count);
++  void Generate(cRingBufferLinear *const ResultBuffer);
++};
++
++cAudGenerator::cAudGenerator()
++  : buffer(MAXFRAMESIZE)
++{
++  overflowByteCount = 0;
++  accessUnitType = H264::cSliceHeader::Frame;
++  sliceTypes = 0;
++}
++
++int cAudGenerator::CollectData(const uchar *Data, int Count)
++{
++  // buffer frame data until AUD can be generated
++  int n = buffer.Put(Data, Count);
++  overflowByteCount += (Count - n);
++  // always report "success" as an error message will be shown in Generate()
++  return Count;
++}
++
++void cAudGenerator::CollectSliceType(const H264::cSliceHeader *SH)
++{
++  if (!SH)
++     return;
++  // remember type of current access unit 
++  accessUnitType = SH->GetAccessUnitType();
++  // translate slice_type into part of primary_pic_type and merge them
++  switch (SH->slice_type) {
++    case 2: // I
++    case 7: // I only => I 
++         sliceTypes |= 0x10000;
++         break;
++    case 0: // P
++    case 5: // P only => I, P
++         sliceTypes |= 0x11000;
++         break;
++    case 1: // B
++    case 6: // B only => I, P, B
++         sliceTypes |= 0x11100;
++         break;
++    case 4: // SI
++    case 9: // SI only => SI
++         sliceTypes |= 0x00010;
++         break;
++    case 3: // SP
++    case 8: // SP only => SI, SP
++         sliceTypes |= 0x00011;
++         break;
++    }
++}
++
++void cAudGenerator::Generate(cRingBufferLinear *const ResultBuffer)
++{
++  int primary_pic_type;
++  // translate the merged primary_pic_type parts into primary_pic_type
++  switch (sliceTypes) {
++    case 0x10000: // I
++         primary_pic_type = 0;
++         break;
++    case 0x11000: // I, P
++         primary_pic_type = 1;
++         break;
++    case 0x11100: // I, P, B
++         primary_pic_type = 2;
++         break;
++    case 0x00010: // SI
++         primary_pic_type = 3;
++         break;
++    case 0x00011: // SI, SP
++         primary_pic_type = 4;
++         break;
++    case 0x10010: // I, SI
++         primary_pic_type = 5;
++         break;
++    case 0x11011: // I, SI, P, SP
++    case 0x10011: // I, SI, SP
++    case 0x11010: // I, SI, P
++         primary_pic_type = 6;
++         break;
++    case 0x11111: // I, SI, P, SP, B
++    case 0x11110: // I, SI, P, B
++         primary_pic_type = 7;
++         break;
++    default:
++         primary_pic_type = -1; // frame without slices?
++    }
++  // drop an incorrect frame
++  if (primary_pic_type < 0)
++     esyslog("ERROR: cAudGenerator::Generate(): dropping frame without slices");
++  else {
++     // drop a partitial frame
++     if (overflowByteCount > 0) 
++        esyslog("ERROR: cAudGenerator::Generate(): frame exceeds MAXFRAMESIZE bytes (required size: %d bytes), dropping frame", buffer.Size() + overflowByteCount);
++     else {
++        int Count;
++        uchar *Data = buffer.Get(Count);
++        int PesPayloadOffset = 0;
++        AnalyzePesHeader(Data, Count, PesPayloadOffset);
++        // enter primary_pic_type into AUD
++        Data[ PesPayloadOffset + 4 ] |= primary_pic_type << 5;
++        // mangle the "start code" to pass the information that this access unit is a
++        // bottom field to ScanVideoPacket() where this modification will be reverted.
++        if (accessUnitType == H264::cSliceHeader::BottomField)
++           Data[ PesPayloadOffset + 3 ] |= 0x80;
++        // store the buffered frame
++        cRepacker::PutAllOrNothing(ResultBuffer, Data, Count, Count);
++        }
++     }
++  // prepare for next run
++  buffer.Clear();
++  overflowByteCount = 0;
++  sliceTypes = 0;
++}
++
+ // --- cVideoRepacker --------------------------------------------------------
+ 
++#define IPACKS 2048
++#define SC_SEQUENCE 0xB3  // "sequence header code"
++#define SC_GROUP    0xB8  // "group start code"
++#define SC_PICTURE  0x00  // "picture start code"
++
+ class cVideoRepacker : public cCommonRepacker {
+ private:
+   enum eState {
+@@ -248,37 +387,243 @@ private:
+     scanPicture
+     };
+   int state;
+-  void HandleStartCode(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel);
++  bool framePicture;
++  bool pictureExtensionAhead;
++  bool collectChunkData;
++  H264::cSimpleBuffer chunkData;
++  H264::cParser *h264Parser;
++  bool &h264;
++  int sliceSeen;
++  bool audSeen;
++  cAudGenerator *audGenerator;
++  const uchar *startCodeLocations[(IPACKS + 3) / 4];
++  int startCodeLocationCount;
++  int startCodeLocationIndex;
++  bool startCodeLocationsPrepared;
++  void CheckAudGeneration(bool SliceNalUnitType, bool SyncPoint, const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel);
++  void PushOutCurrentFrameAndStartNewPacket(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel);
++  void HandleNalUnit(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel, const uchar *&NalPayload);
++  void HandleStartCode(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel, const uchar *&ChunkPayload);
+   inline bool ScanDataForStartCodeSlow(const uchar *const Data);
+   inline bool ScanDataForStartCodeFast(const uchar *&Data, const uchar *Limit);
+-  inline bool ScanDataForStartCode(const uchar *&Data, int &Done, int &Todo);
++  inline bool ScanDataForStartCode(const uchar *&Data, int &Done, int &Todo, int PesPayloadOffset);
+   inline void AdjustCounters(const int Delta, int &Done, int &Todo);
+   inline bool ScanForEndOfPictureSlow(const uchar *&Data);
+   inline bool ScanForEndOfPictureFast(const uchar *&Data, const uchar *Limit);
+   inline bool ScanForEndOfPicture(const uchar *&Data, const uchar *Limit);
++  inline void PushStartCodeLocation(const uchar *Data);
++  inline const uchar *PeekStartCodeLocation(void);
++  inline const uchar *PullStartCodeLocation(void);
++  void CollectData(const uchar *Data, int Count);
++  void BeginCollectingPictureExtension(void);
++  void EndCollectingPictureExtension(void);
++  bool DetermineFramePicture(void);
++  void GenerateFieldPicturesHint(bool FramePicture, const uchar *const Data, const uchar AndMask, const uchar OrMask);
++  void SwitchToMpeg12(void);
++protected:
++  virtual int Put(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded);
+ public:
+-  cVideoRepacker(void);
++  cVideoRepacker(bool &H264);
++  ~cVideoRepacker();
+   virtual void Reset(void);
+   virtual void Repack(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count);
+   virtual int BreakAt(const uchar *Data, int Count);
+   };
+ 
+-cVideoRepacker::cVideoRepacker(void)
+-{
++cVideoRepacker::cVideoRepacker(bool &H264)
++: chunkData(1024)
++, h264(H264)
++{
++  // assume H.264 -- we'll fallback to MPEG1/2 when necessary
++  h264 = true;
++  h264Parser = (H264 ? new H264::cParser() : 0);
++  audGenerator = 0;
+   Reset();
+ }
+ 
++cVideoRepacker::~cVideoRepacker()
++{
++  delete h264Parser;
++  delete audGenerator;
++}
++
+ void cVideoRepacker::Reset(void)
+ {
+   cCommonRepacker::Reset();
++  if (h264Parser)
++     h264Parser->Reset();
+   scanner = 0xFFFFFFFF;
+   state = syncing;
++  framePicture = true;
++  pictureExtensionAhead = false;
++  collectChunkData = false;
++  chunkData.Clear();
++  sliceSeen = -1;
++  audSeen = false;
++  delete audGenerator;
++  audGenerator = 0;
++  startCodeLocationCount = 0;
++  startCodeLocationsPrepared = false;
+ }
+ 
+-void cVideoRepacker::HandleStartCode(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel)
++void cVideoRepacker::SwitchToMpeg12(void)
+ {
+-  // synchronisation is detected some bytes after frame start.
+-  const int SkippedBytesLimit = 4;
++  if (!h264Parser)
++     return;
++  dsyslog("cVideoRepacker: switching to MPEG1/2 mode");
++  delete h264Parser;
++  h264Parser = 0;
++  delete audGenerator;
++  audGenerator = 0;
++  h264 = false;
++}
++
++int cVideoRepacker::Put(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count, int CapacityNeeded)
++{
++  if (!audGenerator)
++     return cCommonRepacker::Put(ResultBuffer, Data, Count, CapacityNeeded);
++
++  return audGenerator->CollectData(Data, Count);
++}
++
++void cVideoRepacker::CollectData(const uchar *Data, int Count)
++{
++  if (h264Parser)
++     h264Parser->PutNalUnitData(Data, Count);
++  else if (collectChunkData)
++     chunkData.Put(Data, Count);
++}
++
++void cVideoRepacker::HandleNalUnit(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel, const uchar *&NalPayload)
++{
++  // check whether we need to fall back to MPEG1/2
++  if (initiallySyncing) {
++     switch (*Data) {
++       case SC_SEQUENCE:
++       case SC_GROUP:
++       case SC_PICTURE:
++            // the above start codes do not appear in H.264 so let's switch to MPEG1/2 
++            SwitchToMpeg12();
++            // delegate startcode to appropriate handler
++            HandleStartCode(Data, ResultBuffer, Payload, StreamID, MpegLevel, NalPayload);
++            return;
++       }
++     }
++
++  // valid NAL units start with a zero bit
++  if (*Data & 0x80) {
++     LOG("cVideoRepacker: found invalid NAL unit: stream seems to be scrambled or not demultiplexed");
++     return;
++     }
++
++  // collect NAL unit's remaining data and process it 
++  CollectData(NalPayload, Data - 3 - NalPayload);
++  h264Parser->Process();
++
++  // which kind of NAL unit have we got?
++  const int nal_unit_type = *Data & 0x1F;
++  switch (nal_unit_type) {
++    case 1: // coded slice of a non-IDR picture
++    case 2: // coded slice data partition A
++    case 5: // coded slice of an IDR picture
++         CheckAudGeneration(true, false, Data, ResultBuffer, Payload, StreamID, MpegLevel);
++         break;
++    case 3: // coded slice data partition B
++    case 4: // coded slice data partition C
++    case 19: // coded slice of an auxiliary coded picture without partitioning
++         break;
++    case 6: // supplemental enhancement information (SEI)
++    case 7: // sequence parameter set
++    case 8: // picture parameter set
++    case 10: // end of sequence
++    case 11: // end of stream
++    case 13: // sequence parameter set extension
++         CheckAudGeneration(false, nal_unit_type == 7, Data, ResultBuffer, Payload, StreamID, MpegLevel);
++         break;
++    case 12: // filler data
++         break;
++    case 14 ... 18: // reserved
++         CheckAudGeneration(false, false, Data, ResultBuffer, Payload, StreamID, MpegLevel);
++    case 20 ... 23: // reserved
++         LOG("cVideoRepacker: found reserved NAL unit type: stream seems to be scrambled");
++         break;
++    case 0: // unspecified
++    case 24 ... 31: // unspecified
++         LOG("cVideoRepacker: found unspecified NAL unit type: stream seems to be scrambled");
++         break;
++    case 9: { // access unit delimiter
++         audSeen = true;
++         CheckAudGeneration(false, true, Data, ResultBuffer, Payload, StreamID, MpegLevel);
++         // mangle the "start code" to pass the information "the next access unit will be the
++         // second field of the current frame" to ScanVideoPacket() where this modification
++         // will be reverted.
++         const H264::cSliceHeader *SH = h264Parser->Context().CurrentSlice();
++         GenerateFieldPicturesHint(!SH || SH->GetAccessUnitType() == H264::cSliceHeader::Frame, Data, 0xFF, 0x80);
++         }
++         break;
++    }
++
++  // collect 0x00 0x00 0x01 for current NAL unit
++  static const uchar InitPayload[3] = { 0x00, 0x00, 0x01 };
++  CollectData(InitPayload, sizeof (InitPayload));
++  NalPayload = Data;
++}
++
++void cVideoRepacker::GenerateFieldPicturesHint(bool FramePicture, const uchar *const Data, const uchar AndMask, const uchar OrMask)
++{
++  if (FramePicture)
++     framePicture = true;
++  else {
++     framePicture ^= true; // toggle between frame/first field and second field
++     if (!framePicture) {
++        // the last picture was a field so set a hint for this second field
++        *(uchar *)Data &= AndMask;
++        *(uchar *)Data |= OrMask;
++        }
++     }
++}
++
++void cVideoRepacker::CheckAudGeneration(bool SliceNalUnitType, bool SyncPoint, const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel)
++{
++  // we cannot generate anything until we have reached the synchronisation point
++  if (sliceSeen < 0 && !SyncPoint)
++     return;
++  // detect transition from slice to non-slice NAL units
++  const bool WasSliceSeen = (sliceSeen != false);
++  const bool IsSliceSeen = SliceNalUnitType;
++  sliceSeen = IsSliceSeen;
++  // collect slice types for AUD generation
++  if (WasSliceSeen && audGenerator)
++     audGenerator->CollectSliceType(h264Parser->Context().CurrentSlice());
++  // handle access unit delimiter at the transition from slice to non-slice NAL units
++  if (WasSliceSeen && !IsSliceSeen) {
++     // an Access Unit Delimiter indicates that the current picture is done. So let's
++     // push out the current frame to start a new packet for the next picture.
++     PushOutCurrentFrameAndStartNewPacket(Data, ResultBuffer, Payload, StreamID, MpegLevel);
++     if (state == findPicture) {
++        // go on with scanning the picture data
++        state++;
++        }
++     // generate the AUD and push out the buffered frame
++     if (audGenerator) {
++        audGenerator->Generate(ResultBuffer);
++        if (audSeen) {
++           // we nolonger need to generate AUDs as they are part of the stream
++           delete audGenerator;
++           audGenerator = 0;
++           }
++        }
++     else if (!audSeen) // we do need to generate AUDs
++        audGenerator = new cAudGenerator;
++     }
++}
++
++void cVideoRepacker::HandleStartCode(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel, const uchar *&ChunkPayload)
++{
++  // collect chunk's remaining data
++  CollectData(ChunkPayload, Data - 3 - ChunkPayload);
++  // currently, only picture extension is collected, so end collecting now
++  EndCollectingPictureExtension();
+ 
+   // which kind of start code have we got?
+   switch (*Data) {
+@@ -292,71 +637,25 @@ void cVideoRepacker::HandleStartCode(con
+     case 0xB4: // sequence error code
+          LOG("cVideoRepacker: found sequence error code: stream seems to be damaged");
+     case 0xB2: // user data start code
++         break;
+     case 0xB5: // extension start code
++         if (pictureExtensionAhead) {
++            pictureExtensionAhead = false;
++            // mangle the "start code" to pass the information "the next access unit will be the
++            // second field of the current frame" to ScanVideoPacket() where this modification
++            // will be reverted.
++            GenerateFieldPicturesHint(DetermineFramePicture(), Data, 0x00, 0xB9);
++            BeginCollectingPictureExtension();
++            }
+          break;
+-    case 0xB7: // sequence end code
+-    case 0xB3: // sequence header code
+-    case 0xB8: // group start code
+     case 0x00: // picture start code
+-         if (state == scanPicture) {
+-            // the above start codes indicate that the current picture is done. So
+-            // push out the packet to start a new packet for the next picuture. If
+-            // the byte count get's negative then the current buffer ends in a
+-            // partitial start code that must be stripped off, as it shall be put
+-            // in the next packet.
+-            PushOutPacket(ResultBuffer, Payload, Data - 3 - Payload);
+-            // go on with syncing to the next picture
+-            state = syncing;
+-            }
+-         if (state == syncing) {
+-            if (initiallySyncing) // omit report for the typical initial case
+-               initiallySyncing = false;
+-            else if (skippedBytes > SkippedBytesLimit) // report that syncing dropped some bytes
+-               LOG("cVideoRepacker: skipped %d bytes to sync on next picture", skippedBytes - SkippedBytesLimit);
+-            skippedBytes = 0;
+-            // if there is a PES header available, then use it ...
+-            if (pesHeaderBackupLen > 0) {
+-               // ISO 13818-1 says:
+-               // In the case of video, if a PTS is present in a PES packet header
+-               // it shall refer to the access unit containing the first picture start
+-               // code that commences in this PES packet. A picture start code commences
+-               // in PES packet if the first byte of the picture start code is present
+-               // in the PES packet.
+-               memcpy(pesHeader, pesHeaderBackup, pesHeaderBackupLen);
+-               pesHeaderLen = pesHeaderBackupLen;
+-               pesHeaderBackupLen = 0;
+-               }
+-            else {
+-               // ... otherwise create a continuation PES header
+-               pesHeaderLen = 0;
+-               pesHeader[pesHeaderLen++] = 0x00;
+-               pesHeader[pesHeaderLen++] = 0x00;
+-               pesHeader[pesHeaderLen++] = 0x01;
+-               pesHeader[pesHeaderLen++] = StreamID; // video stream ID
+-               pesHeader[pesHeaderLen++] = 0x00; // length still unknown
+-               pesHeader[pesHeaderLen++] = 0x00; // length still unknown
+-
+-               if (MpegLevel == phMPEG2) {
+-                  pesHeader[pesHeaderLen++] = 0x80;
+-                  pesHeader[pesHeaderLen++] = 0x00;
+-                  pesHeader[pesHeaderLen++] = 0x00;
+-                  }
+-               else
+-                  pesHeader[pesHeaderLen++] = 0x0F;
+-               }
+-            // append the first three bytes of the start code
+-            pesHeader[pesHeaderLen++] = 0x00;
+-            pesHeader[pesHeaderLen++] = 0x00;
+-            pesHeader[pesHeaderLen++] = 0x01;
+-            // the next packet's payload will begin with the fourth byte of
+-            // the start code (= the actual code)
+-            Payload = Data;
+-            // as there is no length information available, assume the
+-            // maximum we can hold in one PES packet
+-            packetTodo = maxPacketSize - pesHeaderLen;
+-            // go on with finding the picture data
+-            state++;
+-            }
++         pictureExtensionAhead = true;
++    case 0xB8: // group start code
++    case 0xB3: // sequence header code
++    case 0xB7: // sequence end code
++         // the above start codes indicate that the current picture is done. So let's
++         // push out the current frame to start a new packet for the next picture.
++         PushOutCurrentFrameAndStartNewPacket(Data, ResultBuffer, Payload, StreamID, MpegLevel);
+          break;
+     case 0x01 ... 0xAF: // slice start codes
+          if (state == findPicture) {
+@@ -365,6 +664,116 @@ void cVideoRepacker::HandleStartCode(con
+             }
+          break;
+     }
++
++  // collect 0x00 0x00 0x01 for current chunk
++  static const uchar InitPayload[3] = { 0x00, 0x00, 0x01 };
++  CollectData(InitPayload, sizeof (InitPayload));
++  ChunkPayload = Data;
++}
++
++void cVideoRepacker::BeginCollectingPictureExtension(void)
++{
++  chunkData.Clear();
++  collectChunkData = true;
++}
++
++void cVideoRepacker::EndCollectingPictureExtension(void)
++{
++  collectChunkData = false;
++}
++
++bool cVideoRepacker::DetermineFramePicture(void)
++{
++  bool FieldPicture = false;
++  int Count;
++  uchar *Data = chunkData.Get(Count);
++  if (Data && Count >= 7) {
++     if (!Data[0] && !Data[1] && Data[2] == 0x01 && (Data[3] == 0xB5 || Data[3] == 0xB9)) { // extension startcode or hint
++        if ((Data[4] & 0xF0) == 0x80) { // picture coding extension
++           int picture_structure = Data[6] & 0x03;
++           FieldPicture = picture_structure == 0x01 || picture_structure == 0x02;
++           }
++        }           
++     }
++if (FieldPicture) fprintf(stderr, "----- MPEG2 field picture detected ---------------------------\n");
++  return !FieldPicture;
++}
++
++void cVideoRepacker::PushOutCurrentFrameAndStartNewPacket(const uchar *const Data, cRingBufferLinear *const ResultBuffer, const uchar *&Payload, const uchar StreamID, const ePesHeader MpegLevel)
++{
++  // synchronisation is detected some bytes after frame start.
++  const int SkippedBytesLimit = 4;
++
++  if (state == scanPicture) {
++     // picture data has been found so let's push out the current frame.
++     // If the byte count get's negative then the current buffer ends in a
++     // partitial start code that must be stripped off, as it shall be put
++     // in the next packet.
++     PushOutPacket(ResultBuffer, Payload, Data - 3 - Payload);
++     // go on with syncing to the next picture
++     state = syncing;
++     }
++  // when already synced to a picture, just go on collecting data 
++  if (state != syncing)
++     return;
++  // we're synced to a picture so prepare a new packet
++  if (initiallySyncing) { // omit report for the typical initial case
++     initiallySyncing = false;
++     isyslog("cVideoRepacker: operating in %s mode", h264Parser ? "H.264" : "MPEG1/2");
++     }
++  else if (skippedBytes > SkippedBytesLimit) // report that syncing dropped some bytes
++     LOG("cVideoRepacker: skipped %d bytes to sync on next picture", skippedBytes - SkippedBytesLimit);
++  skippedBytes = 0;
++  // if there is a PES header available, then use it ...
++  if (pesHeaderBackupLen > 0) {
++     // ISO 13818-1 says:
++     // In the case of video, if a PTS is present in a PES packet header
++     // it shall refer to the access unit containing the first picture start
++     // code that commences in this PES packet. A picture start code commences
++     // in PES packet if the first byte of the picture start code is present
++     // in the PES packet.
++     memcpy(pesHeader, pesHeaderBackup, pesHeaderBackupLen);
++     pesHeaderLen = pesHeaderBackupLen;
++     pesHeaderBackupLen = 0;
++     }
++  else {
++     // ... otherwise create a continuation PES header
++     pesHeaderLen = 0;
++     pesHeader[pesHeaderLen++] = 0x00;
++     pesHeader[pesHeaderLen++] = 0x00;
++     pesHeader[pesHeaderLen++] = 0x01;
++     pesHeader[pesHeaderLen++] = StreamID; // video stream ID
++     pesHeader[pesHeaderLen++] = 0x00; // length still unknown
++     pesHeader[pesHeaderLen++] = 0x00; // length still unknown
++
++     if (MpegLevel == phMPEG2) {
++        pesHeader[pesHeaderLen++] = 0x80;
++        pesHeader[pesHeaderLen++] = 0x00;
++        pesHeader[pesHeaderLen++] = 0x00;
++        }
++     else
++        pesHeader[pesHeaderLen++] = 0x0F;
++     }
++  // add an AUD in H.264 mode when not present in stream
++  if (h264Parser && !audSeen) {
++     pesHeader[pesHeaderLen++] = 0x00;
++     pesHeader[pesHeaderLen++] = 0x00;
++     pesHeader[pesHeaderLen++] = 0x01;
++     pesHeader[pesHeaderLen++] = 0x09; // access unit delimiter
++     pesHeader[pesHeaderLen++] = 0x10; // will be filled later
++     }
++  // append the first three bytes of the start code
++  pesHeader[pesHeaderLen++] = 0x00;
++  pesHeader[pesHeaderLen++] = 0x00;
++  pesHeader[pesHeaderLen++] = 0x01;
++  // the next packet's payload will begin with the fourth byte of
++  // the start code (= the actual code)
++  Payload = Data;
++  // as there is no length information available, assume the
++  // maximum we can hold in one PES packet
++  packetTodo = maxPacketSize - pesHeaderLen;
++  // go on with finding the picture data
++  state++;
+ }
+ 
+ bool cVideoRepacker::ScanDataForStartCodeSlow(const uchar *const Data)
+@@ -377,6 +786,13 @@ bool cVideoRepacker::ScanDataForStartCod
+ 
+ bool cVideoRepacker::ScanDataForStartCodeFast(const uchar *&Data, const uchar *Limit)
+ {
++  // We enter here when it is safe to access at least 3 bytes before Data (e. g.
++  // the tail of a previous run) and one byte after Data (xx yy zz [aa] bb {cc}).
++  // On return, Data shall either point to the last valid byte of the block or to
++  // the byte qualifying the start code (00 00 01 [ss]).
++  // As we are searching for 0x01, we've to move pointers (xx yy [zz] aa {bb} cc)
++  // to find start code "aa" for example after a packet boundery.
++  Data--;
+   Limit--;
+ 
+   while (Data < Limit && (Data = (const uchar *)memchr(Data, 0x01, Limit - Data))) {
+@@ -394,29 +810,66 @@ bool cVideoRepacker::ScanDataForStartCod
+   return false;
+ }
+ 
+-bool cVideoRepacker::ScanDataForStartCode(const uchar *&Data, int &Done, int &Todo)
++bool cVideoRepacker::ScanDataForStartCode(const uchar *&Data, int &Done, int &Todo, int PesPayloadOffset)
+ {
+-  const uchar *const DataOrig = Data;
+-  const int MinDataSize = 4;
++  const int ReasonableDataSizeForFastScanning = 12;
+ 
+-  if (Todo < MinDataSize || (state != syncing && packetTodo < MinDataSize))
+-     return ScanDataForStartCodeSlow(Data);
++  if (!startCodeLocationsPrepared) {
++     // use slow scanning until it is safe to use fast scanning
++     if (Done < PesPayloadOffset + 3)
++        return ScanDataForStartCodeSlow(Data);
++
++     // process available data but not more than needed for the current packet
++     int Limit = Todo;
++     if (state != syncing && Limit > packetTodo)
++        Limit = packetTodo;
++
++     // use slow scanning when there is not enough data left
++     if (Limit < ReasonableDataSizeForFastScanning)
++        return ScanDataForStartCodeSlow(Data);
++
++     // it's reasonable to use fast scanning
++     const uchar *const DataOrig = Data;
++     bool FoundStartCode = ScanDataForStartCodeFast(Data, Data + Limit);
++     AdjustCounters(Data - DataOrig, Done, Todo);
++     return FoundStartCode;
++  }
+ 
+-  int Limit = Todo;
+-  if (state != syncing && Limit > packetTodo)
+-     Limit = packetTodo;
++  // process available data but not more than needed for the current packet
++  const uchar *Limit = Data + Todo - 1;
++  if (state != syncing && Todo > packetTodo) {
++     if (packetTodo <= 0) // overfill phase
++        Limit = Data; // do a single ScanDataForStartCodeSlow() below
++     else
++        Limit = Data + packetTodo - 1;
++     }
+ 
+-  if (ScanDataForStartCodeSlow(Data))
+-     return true;
++  // prepare the "not found" case
++  bool FoundStartCode = false;
++  const uchar *const DataOrig = Data;
++  Data = Limit;
+ 
+-  if (ScanDataForStartCodeSlow(++Data)) {
+-     AdjustCounters(1, Done, Todo);
+-     return true;
++  // get the next start code location which fits into the limit
++  const uchar *p = PeekStartCodeLocation();
++  if (p && p <= Limit) {
++     Data = PullStartCodeLocation();
++     FoundStartCode = true;     
+      }
+-  ++Data;
+ 
+-  bool FoundStartCode = ScanDataForStartCodeFast(Data, DataOrig + Limit);
+-  AdjustCounters(Data - DataOrig, Done, Todo);
++  // setup the scanner variable
++  int bite = Data - DataOrig;
++  if (bite <= 3) {
++     // to few data, need to do byte shifting
++     for (int i = 0; i <= bite; i++)
++         ScanDataForStartCodeSlow(DataOrig + i);
++     }
++  else {
++     // it's safe to access the last 4 bytes directly
++     uint32_t *Scanner = (uint32_t *)(Data - 3);
++     scanner = ntohl(*Scanner);
++     }
++     
++  AdjustCounters(bite, Done, Todo);
+   return FoundStartCode;
+ }
+ 
+@@ -458,14 +911,19 @@ void cVideoRepacker::Repack(cRingBufferL
+   const uchar *data = Data + done;
+   // remember start of the data
+   const uchar *payload = data;
+-
++  const uchar *ChunkPayload = payload;
++  startCodeLocationIndex = 0;
+   while (todo > 0) {
+         // collect number of skipped bytes while syncing
+         if (state <= syncing)
+            skippedBytes++;
+         // did we reach a start code?
+-        if (ScanDataForStartCode(data, done, todo))
+-           HandleStartCode(data, ResultBuffer, payload, Data[3], mpegLevel);
++        if (ScanDataForStartCode(data, done, todo, pesPayloadOffset)) {
++           if (h264Parser)
++              HandleNalUnit(data, ResultBuffer, payload, Data[3], mpegLevel, ChunkPayload);
++           else
++              HandleStartCode(data, ResultBuffer, payload, Data[3], mpegLevel, ChunkPayload);
++           }
+         // move on
+         data++;
+         done++;
+@@ -568,31 +1026,75 @@ void cVideoRepacker::Repack(cRingBufferL
+         fragmentLen += bite;
+         }
+      }
++  // collect data as needed
++  CollectData(ChunkPayload, data - ChunkPayload);
+   // report that syncing dropped some bytes
+   if (skippedBytes > SkippedBytesLimit) {
+      if (!initiallySyncing) // omit report for the typical initial case
+         LOG("cVideoRepacker: skipped %d bytes while syncing on next picture", skippedBytes - SkippedBytesLimit);
+      skippedBytes = SkippedBytesLimit;
+      }
++  startCodeLocationCount = 0;
++}
++
++void cVideoRepacker::PushStartCodeLocation(const uchar *Data)
++{
++  startCodeLocations[startCodeLocationCount++] = Data;
++}
++
++const uchar *cVideoRepacker::PeekStartCodeLocation()
++{
++  if (startCodeLocationIndex < startCodeLocationCount)
++     return startCodeLocations[startCodeLocationIndex];
++  return 0;
++}
++
++const uchar *cVideoRepacker::PullStartCodeLocation()
++{
++  const uchar *p = PeekStartCodeLocation();
++  if (p != 0)
++     startCodeLocationIndex++;
++  return p;
+ }
+ 
+ bool cVideoRepacker::ScanForEndOfPictureSlow(const uchar *&Data)
+ {
+   localScanner <<= 8;
++  if (localScanner != 0x00000100) {
++     localScanner |= *Data++;
++     return false;
++     }
++  PushStartCodeLocation(Data);
+   localScanner |= *Data++;
+   // check start codes which follow picture data
+-  switch (localScanner) {
+-    case 0x00000100: // picture start code
+-    case 0x000001B8: // group start code
+-    case 0x000001B3: // sequence header code
+-    case 0x000001B7: // sequence end code
+-         return true;
+-    }
++  if (h264Parser) {
++     int nal_unit_type = localScanner & 0x1F;
++     switch (nal_unit_type) {
++       case 9: // access unit delimiter
++            return true;
++       }
++     }
++  else {
++     switch (localScanner) {
++       case 0x00000100: // picture start code
++       case 0x000001B8: // group start code
++       case 0x000001B3: // sequence header code
++       case 0x000001B7: // sequence end code
++            return true;
++       }
++     }
+   return false;
+ }
+ 
+ bool cVideoRepacker::ScanForEndOfPictureFast(const uchar *&Data, const uchar *Limit)
+ {
++  // We enter here when it is safe to access at least 3 bytes before Data (e. g.
++  // the tail of a previous run) and one byte after Data (xx yy zz [aa] bb {cc}).
++  // On return, Data shall either point to the first byte outside of the block or
++  // to the byte following the start code (00 00 01 ss [tt]).  
++  // As we are searching for 0x01, we've to move pointers (xx yy [zz] aa {bb} cc)
++  // to find start code "aa" for example after a packet boundery.
++  Data--;
+   Limit--;
+ 
+   while (Data < Limit && (Data = (const uchar *)memchr(Data, 0x01, Limit - Data))) {
+@@ -600,16 +1102,29 @@ bool cVideoRepacker::ScanForEndOfPicture
+            Data += 3;
+         else {
+            localScanner = 0x00000100 | *++Data;
++           PushStartCodeLocation(Data);
+            // check start codes which follow picture data
+-           switch (localScanner) {
+-             case 0x00000100: // picture start code
+-             case 0x000001B8: // group start code
+-             case 0x000001B3: // sequence header code
+-             case 0x000001B7: // sequence end code
+-                  Data++;
+-                  return true;
+-             default:
+-                  Data += 3;
++           if (h264Parser) {
++              int nal_unit_type = localScanner & 0x1F;
++              switch (nal_unit_type) {
++                case 9: // access unit delimiter
++                     Data++;
++                     return true;
++                default:
++                     Data += 3;
++                }
++              }
++           else {
++              switch (localScanner) {
++                case 0x00000100: // picture start code
++                case 0x000001B8: // group start code
++                case 0x000001B3: // sequence header code
++                case 0x000001B7: // sequence end code
++                     Data++;
++                     return true;
++                default:
++                     Data += 3;
++                }
+              }
+            }
+         }
+@@ -622,57 +1137,55 @@ bool cVideoRepacker::ScanForEndOfPicture
+ 
+ bool cVideoRepacker::ScanForEndOfPicture(const uchar *&Data, const uchar *Limit)
+ {
+-  const uchar *const DataOrig = Data;
+-  const int MinDataSize = 4;
+-  bool FoundEndOfPicture;
++  const int ReasonableDataSizeForFastScanning = 12;
+ 
+-  if (Limit - Data <= MinDataSize) {
+-     FoundEndOfPicture = false;
+-     while (Data < Limit) {
++  const uchar *const ReasonableLimit = Limit - ReasonableDataSizeForFastScanning; 
++  bool FoundEndOfPicture = false;
++  
++  while (Data < Limit) {
++        // use slow scanning until it is safe or reasonable to use fast scanning
++        if (localStart < 3 || Data >= ReasonableLimit) {
++           localStart++;
+            if (ScanForEndOfPictureSlow(Data)) {
+               FoundEndOfPicture = true;
+               break;
+               }
+            }
+-     }
+-  else {
+-     FoundEndOfPicture = true;
+-     if (!ScanForEndOfPictureSlow(Data)) {
+-        if (!ScanForEndOfPictureSlow(Data)) {
+-           if (!ScanForEndOfPictureFast(Data, Limit))
+-              FoundEndOfPicture = false;
++        else {
++           const uchar *const DataOrig = Data;
++           FoundEndOfPicture = ScanForEndOfPictureFast(Data, Limit);
++           localStart += (Data - DataOrig);
++           break;
+            }
+         }
+-     }
+ 
+-  localStart += (Data - DataOrig);
+   return FoundEndOfPicture;
+ }
+ 
+ int cVideoRepacker::BreakAt(const uchar *Data, int Count)
+ {
+-  if (initiallySyncing)
+-     return -1; // fill the packet buffer completely until we have synced once
+-
+   int PesPayloadOffset = 0;
+ 
+   if (AnalyzePesHeader(Data, Count, PesPayloadOffset) <= phInvalid)
+      return -1; // not enough data for test
+ 
+-  // just detect end of picture
+-  if (state == scanPicture) {
+-     // setup local scanner
+-     if (localStart < 0) {
+-        localScanner = scanner;
+-        localStart = 0;
+-        }
+-     // start where we've stopped at the last run
+-     const uchar *data = Data + PesPayloadOffset + localStart;
+-     const uchar *limit = Data + Count;
+-     // scan data
+-     if (ScanForEndOfPicture(data, limit))
++  // setup local scanner
++  if (localStart < 0) {
++     localScanner = scanner;
++     localStart = 0;
++     }
++  // start where we've stopped at the last run
++  const uchar *data = Data + PesPayloadOffset + localStart;
++  const uchar *limit = Data + Count;
++  // scan data
++  startCodeLocationsPrepared = true;
++  if (ScanForEndOfPicture(data, limit)) {
++     // just detect end of picture
++     if (state == scanPicture && !initiallySyncing)
+         return data - Data;
+      }
++  if (initiallySyncing)
++     return -1; // fill the packet buffer completely until we have synced once
+   // just fill up packet and append next start code
+   return PesPayloadOffset + packetTodo + 4;
+ }
+@@ -690,12 +1203,13 @@ private:
+   int frameTodo;
+   int frameSize;
+   int cid;
+-  static bool IsValidAudioHeader(uint32_t Header, bool Mpeg2, int *FrameSize = NULL);
++  static bool IsValidAudioHeader(uint32_t Header, bool Mpeg2, int *FrameSize = NULL, int *FrameDuration = NULL);
+ public:
+   cAudioRepacker(int Cid);
+   virtual void Reset(void);
+   virtual void Repack(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count);
+   virtual int BreakAt(const uchar *Data, int Count);
++  static int GetFrameDuration(const uchar *Data, int Count, int *TrackIndex = NULL);
+   };
+ 
+ int cAudioRepacker::bitRates[2][3][16] = { // all values are specified as kbits/s
+@@ -711,6 +1225,25 @@ int cAudioRepacker::bitRates[2][3][16] =
+   }
+   };
+ 
++int cAudioRepacker::GetFrameDuration(const uchar *Data, int Count, int *TrackIndex)
++{
++  int PesPayloadOffset = 0;
++  ePesHeader PH = AnalyzePesHeader(Data, Count, PesPayloadOffset);
++  if (PH < phMPEG1)
++     return -1;
++
++  const uchar *Payload = Data + PesPayloadOffset;
++  const int PayloadCount = Count - PesPayloadOffset;
++
++  int FrameDuration = -1;
++  if ((Data[3] & 0xE0) == 0xC0 && PayloadCount >= 4) {
++     if (IsValidAudioHeader(((Payload[0] << 8 | Payload[1]) << 8 | Payload[2]) << 8 | Payload[3], PH == phMPEG2, NULL, &FrameDuration) && TrackIndex)
++        *TrackIndex = Data[3] - 0xC0;
++     }
++
++  return FrameDuration;
++}
++
+ cAudioRepacker::cAudioRepacker(int Cid)
+ {
+   cid = Cid;
+@@ -726,7 +1259,7 @@ void cAudioRepacker::Reset(void)
+   frameSize = 0;
+ }
+ 
+-bool cAudioRepacker::IsValidAudioHeader(uint32_t Header, bool Mpeg2, int *FrameSize)
++bool cAudioRepacker::IsValidAudioHeader(uint32_t Header, bool Mpeg2, int *FrameSize, int *FrameDuration)
+ {
+   int syncword           = (Header & 0xFFF00000) >> 20;
+   int id                 = (Header & 0x00080000) >> 19;
+@@ -760,32 +1293,36 @@ bool cAudioRepacker::IsValidAudioHeader(
+   if (emphasis == 2) // reserved
+      return false;
+ 
+-  if (FrameSize) {
+-     if (bitrate_index == 0)
+-        *FrameSize = 0;
+-     else {
+-        static int samplingFrequencies[2][4] = { // all values are specified in Hz
+-          { 44100, 48000, 32000, -1 }, // MPEG 1
+-          { 22050, 24000, 16000, -1 }  // MPEG 2
+-          };
+-
+-        static int slots_per_frame[2][3] = {
+-          { 12, 144, 144 }, // MPEG 1, Layer I, II, III
+-          { 12, 144,  72 }  // MPEG 2, Layer I, II, III
+-          };
+-
+-        int mpegIndex = 1 - id;
+-        int layerIndex = 3 - layer;
+-
+-        // Layer I (i. e., layerIndex == 0) has a larger slot size
+-        int slotSize = (layerIndex == 0) ? 4 : 1; // bytes
+-
+-        int br = 1000 * bitRates[mpegIndex][layerIndex][bitrate_index]; // bits/s
+-        int sf = samplingFrequencies[mpegIndex][sampling_frequency];
+-
+-        int N = slots_per_frame[mpegIndex][layerIndex] * br / sf; // slots
++  if (FrameSize || FrameDuration) {
++     static int samplingFrequencies[2][4] = { // all values are specified in Hz
++       { 44100, 48000, 32000, -1 }, // MPEG 1
++       { 22050, 24000, 16000, -1 }  // MPEG 2
++       };
++
++     static int slots_per_frame[2][3] = {
++       { 12, 144, 144 }, // MPEG 1, Layer I, II, III
++       { 12, 144,  72 }  // MPEG 2, Layer I, II, III
++       };
++
++     int mpegIndex = 1 - id;
++     int layerIndex = 3 - layer;
++
++     // Layer I (i. e., layerIndex == 0) has a larger slot size
++     int slotSize = (layerIndex == 0) ? 4 : 1; // bytes
++     int sf = samplingFrequencies[mpegIndex][sampling_frequency];
++
++     if (FrameDuration)
++        *FrameDuration = 90000 * 8 * slotSize * slots_per_frame[mpegIndex][layerIndex] / sf;
++
++     if (FrameSize) {
++        if (bitrate_index == 0)
++           *FrameSize = 0;
++        else {
++           int br = 1000 * bitRates[mpegIndex][layerIndex][bitrate_index]; // bits/s
++           int N = slots_per_frame[mpegIndex][layerIndex] * br / sf; // slots
+ 
+-        *FrameSize = (N + padding_bit) * slotSize; // bytes
++           *FrameSize = (N + padding_bit) * slotSize; // bytes
++           }
+         }
+      }
+ 
+@@ -895,6 +1432,22 @@ void cAudioRepacker::Repack(cRingBufferL
+         todo--;
+         // do we have to start a new packet as the current is done?
+         if (frameTodo > 0) {
++           // try to skip most loops for continuous memory
++           int bite = frameTodo; // jump to next audio frame
++           if (bite > packetTodo)
++              bite = packetTodo; // jump only to next output packet
++           if (--bite > todo)
++              bite = todo; // jump only to next input packet
++           // is there enough payload available to load the scanner?
++           if (bite > 0 && done + bite - pesPayloadOffset >= 4) {
++              data += bite;
++              done += bite;
++              todo -= bite;
++              frameTodo -= bite;
++              packetTodo -= bite;
++              uint32_t *Scanner = (uint32_t *)(data - 4);
++              scanner = ntohl(*Scanner);
++              }
+            if (--frameTodo == 0) {
+               // the current audio frame is is done now. So push out the packet to
+               // start a new packet for the next audio frame.
+@@ -1086,6 +1639,7 @@ public:
+   virtual void Reset(void);
+   virtual void Repack(cRingBufferLinear *ResultBuffer, const uchar *Data, int Count);
+   virtual int BreakAt(const uchar *Data, int Count);
++  static int GetFrameDuration(const uchar *Data, int Count, int *TrackIndex = NULL);
+   };
+ 
+ // frameSizes are in words, i. e. multiply them by 2 to get bytes
+@@ -1112,6 +1666,30 @@ int cDolbyRepacker::frameSizes[] = {
+      0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+   };
+ 
++int cDolbyRepacker::GetFrameDuration(const uchar *Data, int Count, int *TrackIndex)
++{
++  int PesPayloadOffset = 0;
++  ePesHeader PH = AnalyzePesHeader(Data, Count, PesPayloadOffset);
++  if (PH < phMPEG1)
++     return -1;
++
++  const uchar *Payload = Data + PesPayloadOffset;
++  const int PayloadCount = Count - PesPayloadOffset;
++
++  if (Data[3] == 0xBD && PayloadCount >= 9 && ((Payload[0] & 0xF0) == 0x80) && Payload[4] == 0x0B && Payload[5] == 0x77 && frameSizes[Payload[8]] > 0) {
++     if (TrackIndex)
++        *TrackIndex = Payload[0] - 0x80;
++
++     static int samplingFrequencies[4] = { // all values are specified in Hz
++       48000, 44100, 32000, -1
++       };
++
++     return 90000 * 1536 / samplingFrequencies[Payload[8] >> 6];
++     }
++
++  return -1;
++}
++
+ cDolbyRepacker::cDolbyRepacker(void)
+ {
+   pesHeader[0] = 0x00;
+@@ -1521,7 +2099,7 @@ void cTS2PES::store(uint8_t *Data, int C
+   if (repacker)
+      repacker->Repack(resultBuffer, Data, Count);
+   else
+-     cRepacker::Put(resultBuffer, Data, Count, Count);
++     cRepacker::PutAllOrNothing(resultBuffer, Data, Count, Count);
+ }
+ 
+ void cTS2PES::reset_ipack(void)
+@@ -1841,7 +2419,7 @@ void cTS2PES::ts_to_pes(const uint8_t *B
+         // Enable this if you are having problems with signal quality.
+         // These are the errors I used to get with Nova-T when antenna
+         // was not positioned correcly (not transport errors). //tvr
+-        //dsyslog("TS continuity error (%d)", ccCounter);
++        dsyslog("TS continuity error (%d)", ccCounter);
+         }
+      ccCounter = Buf[3] & CONT_CNT_MASK;
+      }
+@@ -1869,6 +2447,58 @@ void cTS2PES::ts_to_pes(const uint8_t *B
+      instant_repack(Buf + 4 + off, TS_SIZE - 4 - off);
+ }
+ 
++// --- cAudioIndexer ---------------------------------------------------------
++
++class cAudioIndexer {
++private:
++  int frameTrack;
++  int frameDuration;
++  int64_t trackTime[MAXAPIDS + MAXDPIDS];
++  int64_t nextIndexTime;
++  
++public:
++  cAudioIndexer(void);
++  void Clear(void);
++  void PrepareFrame(const uchar *Data, int Count, int Offset, uchar &PictureType);
++  void ProcessFrame(void);
++  };
++
++cAudioIndexer::cAudioIndexer(void)
++{
++  Clear();
++}
++
++void cAudioIndexer::Clear(void)
++{
++  memset(trackTime, 0, sizeof (trackTime));
++  nextIndexTime = 0;
++  frameTrack = -1;
++}
++
++void cAudioIndexer::PrepareFrame(const uchar *Data, int Count, int Offset, uchar &PictureType)
++{
++  frameDuration = cRemux::GetAudioFrameDuration(Data + Offset, Count - Offset, &frameTrack);
++  if (frameDuration <= 0)
++     return;
++
++  if (Data[Offset + 3] == 0xBD)
++     frameTrack += MAXAPIDS;
++
++  PictureType = (trackTime[frameTrack] >= nextIndexTime) ? I_FRAME : NO_PICTURE;
++}
++
++void cAudioIndexer::ProcessFrame(void)
++{
++  if (frameTrack < 0)
++     return;
++
++  if (trackTime[frameTrack] >= nextIndexTime)
++     nextIndexTime += 90000 / FRAMESPERSEC;
++
++  trackTime[frameTrack] += frameDuration;
++  frameTrack = -1;
++}
++
+ // --- cRingBufferLinearPes --------------------------------------------------
+ 
+ class cRingBufferLinearPes : public cRingBufferLinear {
+@@ -1896,12 +2526,14 @@ int cRingBufferLinearPes::DataReady(cons
+ 
+ #define RESULTBUFFERSIZE KILOBYTE(256)
+ 
+-cRemux::cRemux(int VPid, const int *APids, const int *DPids, const int *SPids, bool ExitOnFailure)
++cRemux::cRemux(int VPid, const int *APids, const int *DPids, const int *SPids, bool ExitOnFailure, bool SyncEarly)
+ {
++  h264 = false;
+   exitOnFailure = ExitOnFailure;
+   noVideo = VPid == 0 || VPid == 1 || VPid == 0x1FFF;
+   numUPTerrors = 0;
+   synced = false;
++  syncEarly = SyncEarly;
+   skipped = 0;
+   numTracks = 0;
+   resultSkipped = 0;
+@@ -1910,7 +2542,7 @@ cRemux::cRemux(int VPid, const int *APid
+   if (VPid)
+ #define TEST_cVideoRepacker
+ #ifdef TEST_cVideoRepacker
+-     ts2pes[numTracks++] = new cTS2PES(VPid, resultBuffer, IPACKS, 0xE0, 0x00, new cVideoRepacker);
++     ts2pes[numTracks++] = new cTS2PES(VPid, resultBuffer, IPACKS, 0xE0, 0x00, new cVideoRepacker(h264));
+ #else
+      ts2pes[numTracks++] = new cTS2PES(VPid, resultBuffer, IPACKS, 0xE0);
+ #endif
+@@ -1936,6 +2568,7 @@ cRemux::cRemux(int VPid, const int *APid
+      while (*SPids && numTracks < MAXTRACKS && n < MAXSPIDS)
+            ts2pes[numTracks++] = new cTS2PES(*SPids++, resultBuffer, IPACKS, 0x00, 0x20 + n++);
+      }
++  audioIndexer = (noVideo ? new cAudioIndexer : NULL);
+ }
+ 
+ cRemux::~cRemux()
+@@ -1943,6 +2576,18 @@ cRemux::~cRemux()
+   for (int t = 0; t < numTracks; t++)
+       delete ts2pes[t];
+   delete resultBuffer;
++  delete audioIndexer;
++}
++
++int cRemux::GetAudioFrameDuration(const uchar *Data, int Count, int *TrackIndex)
++{
++  if (Count <= 4)
++     return -1;
++
++  if (Data[3] == 0xBD)
++     return cDolbyRepacker::GetFrameDuration(Data, Count, TrackIndex);
++
++  return cAudioRepacker::GetFrameDuration(Data, Count, TrackIndex);
+ }
+ 
+ int cRemux::GetPid(const uchar *Data)
+@@ -1960,12 +2605,33 @@ int cRemux::GetPacketLength(const uchar 
+   return -1;
+ }
+ 
++bool cRemux::IsFrameH264(const uchar *Data, int Length)
++{
++  int PesPayloadOffset;
++  const uchar *limit = Data + Length;
++  if (AnalyzePesHeader(Data, Length, PesPayloadOffset) <= phInvalid)
++     return false; // neither MPEG1 nor MPEG2
++
++  Data += PesPayloadOffset + 3; // move to video payload and skip 00 00 01
++  if (Data < limit) {
++     // cVideoRepacker ensures that in case of H264 we will see an access unit delimiter here
++     if (0x01 == Data[-1] && 9 == Data[0] && 0x00 == Data[-2] && 0x00 == Data[-3])
++        return true;
++     }
++
++  return false;
++}
++
+ int cRemux::ScanVideoPacket(const uchar *Data, int Count, int Offset, uchar &PictureType)
+ {
+   // Scans the video packet starting at Offset and returns its length.
+   // If the return value is -1 the packet was not completely in the buffer.
+   int Length = GetPacketLength(Data, Count, Offset);
+   if (Length > 0) {
++#ifdef TEST_cVideoRepacker
++     bool FoundPicture = false;
++     bool FoundPictureCodingExtension = false;
++#endif
+      int PesPayloadOffset = 0;
+      if (AnalyzePesHeader(Data + Offset, Length, PesPayloadOffset) >= phMPEG1) {
+         const uchar *p = Data + Offset + PesPayloadOffset + 2;
+@@ -1978,30 +2644,99 @@ int cRemux::ScanVideoPacket(const uchar 
+            if (p[-2] || p[-1] || p[0] != 0x01)
+               pLimit = 0; // skip scanning: packet doesn't start with 0x000001
+            else {
+-              switch (p[1]) {
+-                case SC_SEQUENCE:
+-                case SC_GROUP:
+-                case SC_PICTURE:
+-                     break;
+-                default: // skip scanning: packet doesn't start a new sequence, group or picture
+-                     pLimit = 0;
+-                }
++              if (h264) {
++                 int nal_unit_type = p[1] & 0x1F;
++                 switch (nal_unit_type) {
++                   case 9: // access unit delimiter
++                        // when the MSB in p[1] is set (which violates H.264) then this is a hint
++                        // from cVideoRepacker that this second field of the current frame shall
++                        // not be reported as picture.
++                        if (p[1] & 0x80)
++                           ((uchar *)p)[1] &= ~0x80; // revert the hint and fall through
++                        else
++                           break;
++                   default: // skip scanning: packet doesn't start a new picture
++                        pLimit = 0;
++                   }
++                 }
++              else {
++                 switch (p[1]) {
++                   case SC_SEQUENCE:
++                   case SC_GROUP:
++                   case SC_PICTURE:
++                        break;
++                   default: // skip scanning: packet doesn't start a new sequence, group or picture
++                        pLimit = 0;
++                   }
++                 }
+               }
+            }
+ #endif
+         while (p < pLimit && (p = (const uchar *)memchr(p, 0x01, pLimit - p))) {
+               if (!p[-2] && !p[-1]) { // found 0x000001
+-                 switch (p[1]) {
+-                   case SC_PICTURE: PictureType = (p[3] >> 3) & 0x07;
+-                                    return Length;
+-                   }
++                 if (h264) {
++                    int nal_unit_type = p[1] & 0x1F;
++                    switch (nal_unit_type) {
++                      case 9: { // access unit delimiter
++                           int primary_pic_type = p[2] >> 5;
++                           switch (primary_pic_type) {
++                             case 0: // I
++                             case 3: // SI
++                             case 5: // I, SI
++                                  PictureType = I_FRAME;
++                                  break;
++                             case 1: // I, P
++                             case 4: // SI, SP
++                             case 6: // I, SI, P, SP
++                                  PictureType = P_FRAME;
++                                  break;
++                             case 2: // I, P, B
++                             case 7: // I, SI, P, SP, B
++                                  PictureType = B_FRAME;
++                                  break;
++                             }
++                           return Length;
++                           }
++                      }
++                    }
++                 else {
++                    switch (p[1]) {
++                      case SC_PICTURE: PictureType = (p[3] >> 3) & 0x07;
++#ifndef TEST_cVideoRepacker
++                                       return Length;
++#else
++                                       FoundPicture = true;
++                                       break;
++                      case 0x01 ... 0xAF: // slice startcodes
++                           break;
++                      case 0xB5: // extension startcode
++                      case 0xB9: // hint from cVideoRepacker
++                           if (FoundPicture && p + 2 < pLimit && (p[2] & 0xF0) == 0x80) { // picture coding extension
++                              FoundPictureCodingExtension = true;
++                              // using 0xB9 instead of 0xB5 for an expected picture coding extension
++                              // is a hint from cVideoRepacker that this second field of the current
++                              // frame shall not be reported as picture.
++                              if (p[1] == 0xB9) {
++                                 ((uchar *)p)[1] = 0xB5; // revert the hint
++                                 pLimit = 0; // return with NO_PICTURE below
++                                 }
++                              else
++                                 return Length;
++                              }
++                           break;
++#endif
++                      }
++                    }
+                  p += 4; // continue scanning after 0x01ssxxyy
+                  }
+               else
+                  p += 3; // continue scanning after 0x01xxyy
+               }
+         }
+-     PictureType = NO_PICTURE;
++#ifdef TEST_cVideoRepacker
++     if (!FoundPicture || FoundPictureCodingExtension)
++#endif
++        PictureType = NO_PICTURE;
+      return Length;
+      }
+   return -1;
+@@ -2105,12 +2840,14 @@ uchar *cRemux::Get(int &Count, uchar *Pi
+                         }
+                      }
+                   else if (!synced) {
+-                     if (pt == I_FRAME) {
++                     if (pt == I_FRAME || syncEarly) {
+                         if (PictureType)
+                            *PictureType = pt;
+                         resultSkipped = i; // will drop everything before this position
+-                        SetBrokenLink(data + i, l);
+                         synced = true;
++                        if (pt == I_FRAME) // syncEarly: it's ok but there is no need to call SetBrokenLink()
++                           SetBrokenLink(data + i, l);
++else fprintf(stderr, "video: synced early\n");
+                         }
+                      }
+                   else if (Count)
+@@ -2123,17 +2860,21 @@ uchar *cRemux::Get(int &Count, uchar *Pi
+                l = GetPacketLength(data, resultCount, i);
+                if (l < 0)
+                   return resultData;
+-               if (noVideo) {
++               if (noVideo || !synced && syncEarly) {
++                  uchar pt = NO_PICTURE;
++                  if (audioIndexer && !Count)
++                     audioIndexer->PrepareFrame(data, resultCount, i, pt);
+                   if (!synced) {
+-                     if (PictureType)
+-                        *PictureType = I_FRAME;
++                     if (PictureType && noVideo)
++                        *PictureType = pt;
+                      resultSkipped = i; // will drop everything before this position
+                      synced = true;
++if (!noVideo) fprintf(stderr, "audio: synced early\n");
+                      }
+                   else if (Count)
+                      return resultData;
+                   else if (PictureType)
+-                     *PictureType = I_FRAME;
++                     *PictureType = pt;
+                   }
+                }
+             if (synced) {
+@@ -2154,6 +2895,8 @@ uchar *cRemux::Get(int &Count, uchar *Pi
+ void cRemux::Del(int Count)
+ {
+   resultBuffer->Del(Count);
++  if (audioIndexer && Count > 0)
++     audioIndexer->ProcessFrame();
+ }
+ 
+ void cRemux::Clear(void)
+@@ -2161,6 +2904,8 @@ void cRemux::Clear(void)
+   for (int t = 0; t < numTracks; t++)
+       ts2pes[t]->Clear();
+   resultBuffer->Clear();
++  if (audioIndexer)
++     audioIndexer->Clear();
+   synced = false;
+   skipped = 0;
+   resultSkipped = 0;
+diff -p -up vdr-1.6.0/remux.h.orig vdr-1.6.0/remux.h
+--- vdr-1.6.0/remux.h.orig	2007-09-02 13:19:06.000000000 +0300
++++ vdr-1.6.0/remux.h	2009-07-25 21:30:45.139843180 +0300
+@@ -33,26 +33,32 @@ ePesHeader AnalyzePesHeader(const uchar 
+ #define MAXTRACKS 64
+ 
+ class cTS2PES;
++class cAudioIndexer;
+ 
+ class cRemux {
+ private:
+   bool exitOnFailure;
+   bool noVideo;
++  bool h264;
+   int numUPTerrors;
+   bool synced;
++  bool syncEarly;
+   int skipped;
+   cTS2PES *ts2pes[MAXTRACKS];
+   int numTracks;
+   cRingBufferLinear *resultBuffer;
+   int resultSkipped;
++  cAudioIndexer *audioIndexer;
+   int GetPid(const uchar *Data);
++  int ScanVideoPacket(const uchar *Data, int Count, int Offset, uchar &PictureType);
+ public:
+-  cRemux(int VPid, const int *APids, const int *DPids, const int *SPids, bool ExitOnFailure = false);
++  cRemux(int VPid, const int *APids, const int *DPids, const int *SPids, bool ExitOnFailure = false, bool SyncEarly = false);
+        ///< Creates a new remuxer for the given PIDs. VPid is the video PID, while
+        ///< APids, DPids and SPids are pointers to zero terminated lists of audio,
+        ///< dolby and subtitle PIDs (the pointers may be NULL if there is no such
+        ///< PID). If ExitOnFailure is true, the remuxer will initiate an "emergency
+-       ///< exit" in case of problems with the data stream.
++       ///< exit" in case of problems with the data stream. SyncEarly causes cRemux
++       ///< to sync as soon as a video or audio frame is seen.
+   ~cRemux();
+   void SetTimeouts(int PutTimeout, int GetTimeout) { resultBuffer->SetTimeouts(PutTimeout, GetTimeout); }
+        ///< By default cRemux assumes that Put() and Get() are called from different
+@@ -78,7 +84,8 @@ public:
+        ///< settings as they are.
+   static void SetBrokenLink(uchar *Data, int Length);
+   static int GetPacketLength(const uchar *Data, int Count, int Offset);
+-  static int ScanVideoPacket(const uchar *Data, int Count, int Offset, uchar &PictureType);
++  static int GetAudioFrameDuration(const uchar *Data, int Count, int *TrackIndex = NULL);
++  static bool IsFrameH264(const uchar *Data, int Length);
+   };
+ 
+ #endif // __REMUX_H
+diff -p -up vdr-1.6.0/sdt.c.orig vdr-1.6.0/sdt.c
+--- vdr-1.6.0/sdt.c.orig	2008-02-08 15:48:31.000000000 +0200
++++ vdr-1.6.0/sdt.c	2009-07-25 21:30:45.143843326 +0300
+@@ -55,6 +55,7 @@ void cSdtFilter::Process(u_short Pid, u_
+                    case 0x02: // digital radio sound service
+                    case 0x04: // NVOD reference service
+                    case 0x05: // NVOD time-shifted service
++                   case 0x19: // digital HD television service
+                         {
+                         char NameBuf[Utf8BufSize(1024)];
+                         char ShortNameBuf[Utf8BufSize(1024)];
+diff -p -up vdr-1.6.0/svdrp.c.orig vdr-1.6.0/svdrp.c
+--- vdr-1.6.0/svdrp.c.orig	2009-07-25 21:22:30.169092122 +0300
++++ vdr-1.6.0/svdrp.c	2009-07-25 21:30:45.149843866 +0300
+@@ -1345,8 +1345,10 @@ void cSVDRP::CmdPLAY(const char *Option)
+                  int x = sscanf(option, "%d:%d:%d.%d", &h, &m, &s, &f);
+                  if (x == 1)
+                     pos = h;
+-                 else if (x >= 3)
+-                    pos = (h * 3600 + m * 60 + s) * FRAMESPERSEC + f - 1;
++                 else if (x >= 3) {
++                    int FramesPerSec = cUnbufferedFile::GetFramesPerSec(recording->FileName());
++                    pos = (h * 3600 + m * 60 + s) * FramesPerSec + f - 1;
++                    }
+                  }
+               cResumeFile resume(recording->FileName());
+               if (pos <= 0)
+diff -p -up vdr-1.6.0/thread.c.orig vdr-1.6.0/thread.c
+--- vdr-1.6.0/thread.c.orig	2009-07-25 21:22:30.243092571 +0300
++++ vdr-1.6.0/thread.c	2009-07-25 21:30:45.156843082 +0300
+@@ -219,9 +219,20 @@ cThread::~cThread()
+   free(description);
+ }
+ 
++int cThread::GetPriority(void)
++{
++  errno = 0;
++  int Priority = getpriority(PRIO_PROCESS, 0);
++  if (Priority == -1 && errno != 0) {
++     LOG_ERROR;
++     Priority = 0;
++     }
++  return Priority;
++}
++
+ void cThread::SetPriority(int Priority)
+ {
+-  if (setpriority(PRIO_PROCESS, 0, Priority) < 0)
++  if (setpriority(PRIO_PROCESS, 0, max(-20, min(Priority, 19))) < 0)
+      LOG_ERROR;
+ }
+ 
+diff -p -up vdr-1.6.0/thread.h.orig vdr-1.6.0/thread.h
+--- vdr-1.6.0/thread.h.orig	2007-02-24 18:13:28.000000000 +0200
++++ vdr-1.6.0/thread.h	2009-07-25 21:30:45.163843778 +0300
+@@ -86,6 +86,7 @@ private:
+   static tThreadId mainThreadId;
+   static void *StartThread(cThread *Thread);
+ protected:
++  int GetPriority(void);
+   void SetPriority(int Priority);
+   void Lock(void) { mutex.Lock(); }
+   void Unlock(void) { mutex.Unlock(); }
+diff -p -up vdr-1.6.0/tools.c.orig vdr-1.6.0/tools.c
+--- vdr-1.6.0/tools.c.orig	2009-07-25 21:22:29.002844122 +0300
++++ vdr-1.6.0/tools.c	2009-07-25 21:30:45.169844637 +0300
+@@ -28,6 +28,8 @@ extern "C" {
+ #include "i18n.h"
+ #include "thread.h"
+ #include "config.h"
++#include "remux.h"
++#include "recording.h"
+ 
+ int SysLogLevel = 3;
+ 
+@@ -83,6 +85,14 @@ ssize_t safe_write(int filedes, const vo
+   return p < 0 ? p : written;
+ }
+ 
++int readchar(int filedes)
++{
++  char c;
++  if (safe_read(filedes, &c, sizeof(c)) != 1)
++     return -1;
++  return c;
++}
++
+ void writechar(int filedes, char c)
+ {
+   safe_write(filedes, &c, sizeof(c));
+@@ -141,11 +151,8 @@ char *strreplace(char *s, char c1, char 
+ {
+   if (s) {
+      char *p = s;
+-     while (*p) {
+-           if (*p == c1)
+-              *p = c2;
+-           p++;
+-           }
++     while ((p = strchr(p, c1)))
++           *p++ = c2;
+      }
+   return s;
+ }
+@@ -1636,6 +1643,112 @@ cUnbufferedFile *cUnbufferedFile::Create
+   return File;
+ }
+ 
++int cUnbufferedFile::GetFramesPerSec(const char *FileName)
++{
++  // use this constant as a fallback value
++  int FramesPerSec = FRAMESPERSEC;
++  // open the file an determine frames per second
++  cFileName fn(FileName, false);
++  cUnbufferedFile *f = fn.Open();
++  if (f) {
++     FramesPerSec = f->GetFramesPerSec();
++     fn.Close();
++     }
++  return FramesPerSec;
++}
++
++#define ADD_H264_SUPPORT 1
++
++#ifdef ADD_H264_SUPPORT
++#include "h264parser.h"
++#endif
++
++int cUnbufferedFile::GetFramesPerSec(void)
++{
++  // use this constant as a fallback value
++  int FramesPerSec = FRAMESPERSEC;
++  // rember current file position to restore later
++  off_t OrigPos = curpos;
++  // seek to the beginning and read a chunk of data
++  if (0 == Seek(0, SEEK_SET)) {
++     uchar Data[2048];
++     ssize_t Count = Read(Data, sizeof(Data));
++     if (Count > 0) {
++        // this chunk of data should actually be a PES packet
++        uchar *Limit = Data + Count;
++        int PesPayloadOffset = 0;
++        if (AnalyzePesHeader(Data, Count, PesPayloadOffset) >= phMPEG1) {
++           // we need a video stream -- radio recordings use the default
++           if ((Data[3] & 0xF0) == 0xE0) {
++              uchar *p = Data + PesPayloadOffset;
++#ifdef ADD_H264_SUPPORT
++              // check whether this is a H.264 video frame
++              if (cRemux::IsFrameH264(Data, Count)) {
++                 // need to have a H264 parser since picture timing is rather complex
++                 H264::cParser H264parser(false);
++                 // send NAL units to parser until it is able to provide frames per second
++                 while (p < Limit) {
++                       // find next NAL unit
++                       uchar *pNext = (uchar *)memmem(p + 4, Limit - (p + 4), "\x00\x00\x01", 3);
++                       if (!pNext) // just pass the remainder
++                          pNext = Limit; 
++                       H264parser.PutNalUnitData(p, pNext - p);
++                       // process NAL unit and check for frames per second
++                       H264parser.Process();
++                       int FPS = H264parser.Context().GetFramesPerSec();
++                       if (FPS != -1) { // there we are ;-)
++                          FramesPerSec = FPS;
++fprintf(stderr, "FramesPerSec: %d\n", FramesPerSec);
++                          break;
++                          }
++                       // continue with next NAL unit
++                       p = pNext;   
++                       }
++                 }
++              else {
++#endif
++                 // thanks to cVideoRepacker, the payload starts with a sequence header
++                 if (p + 12 <= Limit) {
++                    if (p[0] == 0x00 && p[1] == 0x00 && p[2] == 0x01 && p[3] == 0xB3) {
++                       uint32_t frame_rate_code = p[7] & 0x0F;
++                       uint32_t frame_rate_extension_n = 0;
++                       uint32_t frame_rate_extension_d = 0;
++                       // now we need to have a look at the next startcode, 
++                       // as it might be a sequence extension
++                       p = (uchar *)memmem(p + 12, Limit - (p + 12), "\x00\x00\x01", 3);
++                       if (p && p + 4 < Limit && p[3] == 0xB5) { // extension start code
++                          if (p + 5 < Limit && (p[4] >> 4) == 0x1) { // sequence extension
++                             if (p + 10 < Limit) {
++                                frame_rate_extension_n = (p[9] & 0x60) >> 5;
++                                frame_rate_extension_d = (p[9] & 0x1F);
++                                }
++                             }
++                          }
++                       // calculate frame rate and round it for compatibility
++                       if (0x1 <= frame_rate_code && frame_rate_code <= 0x8) {
++                          static const int n[] = { -1, 24000, 24, 25, 30000, 30, 50, 60000, 60 };
++                          static const int d[] = { -1,  1001,  1,  1,  1001,  1,  1,  1001,  1 };
++                          double frame_rate = n[frame_rate_code] * (frame_rate_extension_n + 1) 
++                                   / (double)(d[frame_rate_code] * (frame_rate_extension_d + 1));
++                          FramesPerSec = (int)frame_rate;
++                          if (frame_rate - FramesPerSec > 0.5)
++                             FramesPerSec++;
++fprintf(stderr, "FramesPerSec: %d\n", FramesPerSec);
++                          }
++                       }
++                    }
++#ifdef ADD_H264_SUPPORT
++                 }
++#endif
++              }
++           }
++        }
++     }
++  // restore original position
++  Seek(OrigPos, SEEK_SET);
++  return FramesPerSec;
++}
++
+ // --- cLockFile -------------------------------------------------------------
+ 
+ #define LOCKFILENAME      ".lock-vdr"
+diff -p -up vdr-1.6.0/tools.h.orig vdr-1.6.0/tools.h
+--- vdr-1.6.0/tools.h.orig	2009-07-25 21:22:29.001844685 +0300
++++ vdr-1.6.0/tools.h	2009-07-25 21:30:45.190842761 +0300
+@@ -167,6 +167,7 @@ public:
+ 
+ ssize_t safe_read(int filedes, void *buffer, size_t size);
+ ssize_t safe_write(int filedes, const void *buffer, size_t size);
++int readchar(int filedes);
+ void writechar(int filedes, char c);
+ int WriteAllOrNothing(int fd, const uchar *Data, int Length, int TimeoutMs = 0, int RetryMs = 0);
+     ///< Writes either all Data to the given file descriptor, or nothing at all.
+@@ -354,6 +355,8 @@ public:
+   ssize_t Read(void *Data, size_t Size);
+   ssize_t Write(const void *Data, size_t Size);
+   static cUnbufferedFile *Create(const char *FileName, int Flags, mode_t Mode = DEFFILEMODE);
++  static int GetFramesPerSec(const char *FileName);
++  int GetFramesPerSec(void);
+   };
+ 
+ class cLockFile {
+diff -p -up vdr-1.6.0/transfer.c.orig vdr-1.6.0/transfer.c
+--- vdr-1.6.0/transfer.c.orig	2007-01-05 12:45:28.000000000 +0200
++++ vdr-1.6.0/transfer.c	2009-07-25 21:30:45.196843700 +0300
+@@ -19,7 +19,7 @@ cTransfer::cTransfer(tChannelID ChannelI
+ ,cThread("transfer")
+ {
+   ringBuffer = new cRingBufferLinear(TRANSFERBUFSIZE, TS_SIZE * 2, true, "Transfer");
+-  remux = new cRemux(VPid, APids, Setup.UseDolbyDigital ? DPids : NULL, SPids);
++  remux = new cRemux(VPid, APids, Setup.UseDolbyDigital ? DPids : NULL, SPids, false, true);
+ }
+ 
+ cTransfer::~cTransfer()

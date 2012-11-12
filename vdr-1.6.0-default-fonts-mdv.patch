@@ -1,0 +1,16 @@
+Index: vdr-1.6.0-font/font.c
+===================================================================
+--- vdr-1.6.0-font/font.c
++++ vdr-1.6.0-font/font.c	2008-04-25 16:36:51.000000000 +0300
+@@ -16,9 +16,9 @@
+ #include "osd.h"
+ #include "tools.h"
+ 
+-const char *DefaultFontOsd = "Sans Serif:Bold";
++const char *DefaultFontOsd = "Sans Serif";
+ const char *DefaultFontSml = "Sans Serif";
+-const char *DefaultFontFix = "Courier:Bold";
++const char *DefaultFontFix = "Monospace:Bold";
+ 
+ // --- cFreetypeFont ---------------------------------------------------------
+ 

@@ -1,0 +1,30 @@
+diff -N'urpx*~' vdr-1.6.0/dvbdevice.c vdr-1.6.0-decoder/dvbdevice.c
+--- vdr-1.6.0/dvbdevice.c	2008-02-09 18:11:44.000000000 +0200
++++ vdr-1.6.0-decoder/dvbdevice.c	2008-05-05 05:35:18.000000000 +0300
+@@ -490,7 +490,7 @@ void cDvbDevice::MakePrimaryDevice(bool 
+ 
+ bool cDvbDevice::HasDecoder(void) const
+ {
+-  return fd_video >= 0 && fd_audio >= 0;
++  return fd_video != -1 && fd_audio != -1;
+ }
+ 
+ bool cDvbDevice::Ready(void)
+@@ -952,7 +952,7 @@ bool cDvbDevice::CanReplay(void) const
+ 
+ bool cDvbDevice::SetPlayMode(ePlayMode PlayMode)
+ {
+-  if (PlayMode != pmExtern_THIS_SHOULD_BE_AVOIDED && fd_video < 0 && fd_audio < 0) {
++  if (PlayMode != pmExtern_THIS_SHOULD_BE_AVOIDED && fd_video == -2 && fd_audio == -2) {
+      // reopen the devices
+      fd_video = DvbOpen(DEV_DVB_VIDEO,  CardIndex(), O_RDWR | O_NONBLOCK);
+      fd_audio = DvbOpen(DEV_DVB_AUDIO,  CardIndex(), O_RDWR | O_NONBLOCK);
+@@ -1008,7 +1008,7 @@ bool cDvbDevice::SetPlayMode(ePlayMode P
+     case pmExtern_THIS_SHOULD_BE_AVOIDED:
+          close(fd_video);
+          close(fd_audio);
+-         fd_video = fd_audio = -1;
++         fd_video = fd_audio = -2;
+          break;
+     }
+   playMode = PlayMode;

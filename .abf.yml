@@ -1,0 +1,10 @@
+sources:
+  "vdr-1.6.0.tar.bz2:"	203a03ce4a39e8c70e0a64d7d94b7f5f17f03e7d
+  "vdr.init:"	1673e837da5410d5ac5ec6b7e2dc12664846e2d7
+  "vdr-plugin-filetriggers.script:"	32e8eb4efef15ffc98637c4c6f03a51e39773cf9
+  "vdr-README.mdv:"	aaf18e641248afc15cdbf773b1e73d29b4647922
+  "vdr-runvdr:"	b187af12acd2130f3889a98e76d61e3e8be0bc9f
+  "vdr-shutdown.sh.example:"	398200fb391920dc774c8e9da46796299320f47a
+  "vdr-sky.cron:"	2d5b600cf5ada75d44709e43fc69ec17b90ac682
+  "vdr-sky.sysconfig:"	b2cea1aac858a72d90fe12e6cf3f7d3784fa1d82
+  "vdr.sysconfig:"	d2b2eb8e7b887b20e12a43fc09fd717a71eef1fe

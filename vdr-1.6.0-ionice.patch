@@ -1,0 +1,38 @@
+diff -p -up vdr-1.6.0/recording.c.orig vdr-1.6.0/recording.c
+--- vdr-1.6.0/recording.c.orig	2009-07-25 21:30:45.112843113 +0300
++++ vdr-1.6.0/recording.c	2009-07-25 21:31:59.503092789 +0300
+@@ -83,6 +83,7 @@ cRemoveDeletedRecordingsThread::cRemoveD
+ void cRemoveDeletedRecordingsThread::Action(void)
+ {
+   SetPriority(19);
++  SetIOPriority(7);
+   // Make sure only one instance of VDR does this:
+   cLockFile LockFile(VideoDirectory);
+   if (LockFile.Lock()) {
+diff -p -up vdr-1.6.0/thread.c.orig vdr-1.6.0/thread.c
+--- vdr-1.6.0/thread.c.orig	2009-07-25 21:30:45.156843082 +0300
++++ vdr-1.6.0/thread.c	2009-07-25 21:31:59.507092935 +0300
+@@ -236,6 +236,12 @@ void cThread::SetPriority(int Priority)
+      LOG_ERROR;
+ }
+ 
++void cThread::SetIOPriority(int Priority)
++{
++  if (syscall(SYS_ioprio_set, 1, 0, (Priority & 0xff) | (2 << 13)) < 0) // best effort class
++     LOG_ERROR;
++}
++
+ void cThread::SetDescription(const char *Description, ...)
+ {
+   free(description);
+diff -p -up vdr-1.6.0/thread.h.orig vdr-1.6.0/thread.h
+--- vdr-1.6.0/thread.h.orig	2009-07-25 21:30:45.163843778 +0300
++++ vdr-1.6.0/thread.h	2009-07-25 21:31:59.513092715 +0300
+@@ -88,6 +88,7 @@ private:
+ protected:
+   int GetPriority(void);
+   void SetPriority(int Priority);
++  void SetIOPriority(int Priority);
+   void Lock(void) { mutex.Lock(); }
+   void Unlock(void) { mutex.Unlock(); }
+   virtual void Action(void) = 0;

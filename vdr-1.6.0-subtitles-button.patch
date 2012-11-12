@@ -1,0 +1,39 @@
+diff -Nru vdr-1.6.0-vanilla/menu.c vdr-1.6.0-subtitles-button/menu.c
+--- vdr-1.6.0-vanilla/menu.c	2008-03-16 13:15:28.000000000 +0200
++++ vdr-1.6.0-subtitles-button/menu.c	2009-02-28 19:52:25.000000000 +0200
+@@ -2475,6 +2475,7 @@
+   updateChannelsTexts[5] = tr("add new transponders");
+ 
+   SetSection(tr("DVB"));
++  SetHelp(NULL, tr("Button$Audio"), tr("Button$Subtitles"), NULL);
+   Setup();
+ }
+ 
+@@ -2520,6 +2521,17 @@
+   eOSState state = cMenuSetupBase::ProcessKey(Key);
+ 
+   if (Key != kNone) {
++     switch (Key) {
++       case kGreen:
++            cRemote::Put(kAudio, true);
++            state = osEnd;
++            break;
++       case kYellow:
++            cRemote::Put(kSubtitles, true);
++            state = osEnd;
++            break;
++       default:
++            {
+      bool DoSetup = data.VideoFormat != newVideoFormat;
+      DoSetup |= data.DisplaySubtitles != newDisplaySubtitles;
+      if (numAudioLanguages != oldnumAudioLanguages) {
+@@ -2560,6 +2572,9 @@
+         }
+      if (DoSetup)
+         Setup();
++            }
++            break;
++       }
+      }
+   if (state == osBack && Key == kOk) {
+      if (::Setup.PrimaryDVB != oldPrimaryDVB)

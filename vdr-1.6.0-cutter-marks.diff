@@ -1,0 +1,56 @@
+diff -Nru vdr-1.6.0-vanilla/cutter.c vdr-1.6.0-cutter-marks/cutter.c
+--- vdr-1.6.0-vanilla/cutter.c	2008-03-27 21:43:25.000000000 +0200
++++ vdr-1.6.0-cutter-marks/cutter.c	2008-03-27 21:56:05.000000000 +0200
+@@ -21,7 +21,7 @@
+   cUnbufferedFile *fromFile, *toFile;
+   cFileName *fromFileName, *toFileName;
+   cIndexFile *fromIndex, *toIndex;
+-  cMarks fromMarks, toMarks;
++  cMarks fromMarks;
+ protected:
+   virtual void Action(void);
+ public:
+@@ -42,7 +42,6 @@
+      toFileName = new cFileName(ToFileName, true, true);
+      fromIndex = new cIndexFile(FromFileName, false);
+      toIndex = new cIndexFile(ToFileName, true);
+-     toMarks.Load(ToFileName); // doesn't actually load marks, just sets the file name
+      Start();
+      }
+   else
+@@ -71,9 +70,6 @@
+      Mark = fromMarks.Next(Mark);
+      int FileSize = 0;
+      int CurrentFileNumber = 0;
+-     int LastIFrame = 0;
+-     toMarks.Add(0);
+-     toMarks.Save();
+      uchar buffer[MAXFRAMESIZE];
+      bool LastMark = false;
+      bool cutIn = true;
+@@ -130,7 +126,6 @@
+                     }
+                  FileSize = 0;
+                  }
+-              LastIFrame = 0;
+ 
+               if (cutIn) {
+                  cRemux::SetBrokenLink(buffer, Length);
+@@ -146,17 +141,11 @@
+               break;
+               }
+            FileSize += Length;
+-           if (!LastIFrame)
+-              LastIFrame = toIndex->Last();
+ 
+            // Check editing marks:
+ 
+            if (Mark && Index >= Mark->position) {
+               Mark = fromMarks.Next(Mark);
+-              toMarks.Add(LastIFrame);
+-              if (Mark)
+-                 toMarks.Add(toIndex->Last() + 1);
+-              toMarks.Save();
+               if (Mark) {
+                  Index = Mark->position;
+                  Mark = fromMarks.Next(Mark);

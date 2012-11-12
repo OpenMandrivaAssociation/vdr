@@ -1,0 +1,510 @@
+diff -p -up vdr-1.6.0/config.c.orig vdr-1.6.0/config.c
+--- vdr-1.6.0/config.c.orig	2009-07-25 21:25:34.324136004 +0300
++++ vdr-1.6.0/config.c	2009-07-25 21:29:08.134092970 +0300
+@@ -301,6 +301,10 @@ cSetup::cSetup(void)
+   MenuCmdPosition = 0;
+   noEPGMode=0;
+   noEPGList=strdup("");
++#if 1 /* ifdef USE_LNBSHARE */
++  VerboseLNBlog = 0;
++  for (int i = 0; i < MAXDEVICES; i++) CardUsesLNBnr[i] = i + 1;
++#endif /* LNBSHARE */
+ }
+ 
+ cSetup::~cSetup()
+@@ -537,7 +541,23 @@ bool cSetup::Parse(const char *Name, con
+   else if (!strcasecmp(Name, "ShowProgressBar"))     ShowProgressBar    = atoi(Value);
+   else if (!strcasecmp(Name, "MenuCmdPosition"))     MenuCmdPosition    = atoi(Value);
+   else
++#if 1 /* ifdef USE_LNBSHARE */
++  if (!strcasecmp(Name, "VerboseLNBlog")) VerboseLNBlog = atoi(Value);
++  else {
++     char tmp[20];
++     bool result = false;
++     for (int i = 1; i <= MAXDEVICES; i++) {
++         sprintf(tmp, "Card%dusesLNBnr", i);
++         if (!strcasecmp(Name, tmp)) {
++            CardUsesLNBnr[i - 1] = atoi(Value);
++            result = true;
++            }
++         }
++     return result;
++  }
++#else
+      return false;
++#endif /* LNBSHARE */
+   return true;
+ }
+ 
+@@ -628,6 +648,16 @@ bool cSetup::Save(void)
+   Store("ShowRecLength",      ShowRecLength);
+   Store("ShowProgressBar",    ShowProgressBar);
+   Store("MenuCmdPosition",    MenuCmdPosition);
++#if 1 /* ifdef USE_LNBSHARE */
++  Store("VerboseLNBlog",       VerboseLNBlog);
++  char tmp[20];
++  if (cDevice::NumDevices() > 1) {
++     for (int i = 1; i <= cDevice::NumDevices(); i++) {
++         sprintf(tmp, "Card%dusesLNBnr", i);
++         Store(tmp, CardUsesLNBnr[i - 1]);
++         }
++     }
++#endif /* LNBSHARE */
+ 
+   Sort();
+ 
+diff -p -up vdr-1.6.0/config.h.orig vdr-1.6.0/config.h
+--- vdr-1.6.0/config.h.orig	2009-07-25 21:25:34.326091679 +0300
++++ vdr-1.6.0/config.h	2009-07-25 21:28:03.337093005 +0300
+@@ -286,6 +286,10 @@ public:
+   int InitialVolume;
+   int EmergencyExit;
+   int ShowRecDate, ShowRecTime, ShowRecLength, ShowProgressBar, MenuCmdPosition;
++#if 1 /* ifdef USE_LNBSHARE */
++  int VerboseLNBlog;
++  int CardUsesLNBnr[MAXDEVICES];
++#endif /* LNBSHARE */
+   int __EndData__;
+   char *noEPGList; // pointer not to be flat-copied
+   cSetup(void);
+diff -p -up vdr-1.6.0/device.c.orig vdr-1.6.0/device.c
+--- vdr-1.6.0/device.c.orig	2009-07-25 21:25:34.215091725 +0300
++++ vdr-1.6.0/device.c	2009-07-25 21:28:03.345094658 +0300
+@@ -89,6 +89,10 @@ void cLiveSubtitle::Action(void)
+         }
+ }
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++#include "diseqc.h"
++#endif /* LNBSHARE */
++
+ // --- cPesAssembler ---------------------------------------------------------
+ 
+ class cPesAssembler {
+@@ -231,6 +235,12 @@ cDevice::cDevice(void)
+ 
+   SetVideoFormat(Setup.VideoFormat);
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++  LNBstate = -1;
++  LNBnr = Setup.CardUsesLNBnr[cardIndex];
++  LNBsource = NULL;
++#endif /* LNBSHARE */
++
+   mute = false;
+   volume = Setup.CurrentVolume;
+ 
+@@ -307,6 +317,16 @@ void cDevice::SetUseDeviceOnlyOut(int n)
+      useDeviceOnlyOut |= (1 << n);
+ }
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++void cDevice::SetLNBnr(void)
++{
++  for (int i = 0; i < numDevices; i++) {
++      device[i]->LNBnr = Setup.CardUsesLNBnr[i];
++      isyslog("LNB-sharing: setting device %d to use LNB %d", i, device[i]->LNBnr);
++      }
++}
++#endif /* LNBSHARE */
++
+ int cDevice::NextCardIndex(int n)
+ {
+   if (n > 0) {
+@@ -417,6 +437,98 @@ cDevice *cDevice::ActualDevice(void)
+   return d;
+ }
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++cDevice *cDevice::GetBadDevice(const cChannel *Channel)
++{
++  if (!cSource::IsSat(Channel->Source())) return NULL;
++  if (Setup.DiSEqC) {
++     cDiseqc *diseqc;
++     diseqc = Diseqcs.Get(Channel->Source(), Channel->Frequency(), Channel->Polarization());
++
++     for (int i = 0; i < numDevices; i++) {
++         if (this != device[i] && device[i]->GetLNBnr() == LNBnr && device[i]->GetLNBsource() != (int*) diseqc) {
++            if (Setup.VerboseLNBlog) {
++               isyslog("LNB %d: Device check for channel %d on device %d. LNB or DiSEq conflict with device %d", LNBnr, Channel->Number(), this->DeviceNumber(), i);
++               }
++            return device[i];
++            }
++         }
++     if (Setup.VerboseLNBlog) {
++        isyslog("LNB %d: Device check for for channel %d on device %d. OK", LNBnr, Channel->Number(), this->DeviceNumber());
++        }
++  } else {
++     char requiredState;
++     if (Channel->Frequency() >= Setup.LnbSLOF) {
++        requiredState = 1 ;
++     } else {
++        requiredState = 0;
++        }
++     if (Channel->Polarization() == 'v' || Channel->Polarization() == 'V') requiredState += 2;
++
++     for (int i = 0; i < numDevices; i++) {
++         if (this != device[i] && device[i]->GetLNBnr() == LNBnr && device[i]->GetLNBconf() != requiredState) {
++            if (Setup.VerboseLNBlog) {
++               isyslog("LNB %d: Device check for channel %d, LNBstate %d on device %d, current LNBstate %d. Conflict with device %d, LNBstate %d", LNBnr, Channel->Number(), requiredState, this->DeviceNumber(), LNBstate, i, device[i]->GetLNBconf());
++               }
++            return device[i];
++            }
++         }
++     if (Setup.VerboseLNBlog) {
++        isyslog("LNB %d: Device check for channel %d, LNBstate %d on device %d, current LNBstate %d. No other devices affected", LNBnr, Channel->Number(), requiredState, this->DeviceNumber(), LNBstate);
++        }
++     }
++  return NULL;
++}
++
++int cDevice::GetMaxBadPriority(const cChannel *Channel)
++{
++  if (!cSource::IsSat(Channel->Source())) return -2;
++  bool PrimaryIsBad = false;
++  int maxBadPriority = -2;
++  if (Setup.DiSEqC) {
++     cDiseqc *diseqc;
++     diseqc = Diseqcs.Get(Channel->Source(), Channel->Frequency(), Channel->Polarization());
++
++     for (int i = 0; i < numDevices; i++) {
++         if (this != device[i] && device[i]->GetLNBnr() == LNBnr && device[i]->GetLNBsource() != (int*) diseqc) {
++            if (device[i]->Receiving() && device[i]->Priority() > maxBadPriority) {
++               maxBadPriority = device[i]->Priority();
++               }
++            if (device[i]->IsPrimaryDevice()) {
++               PrimaryIsBad = true;
++               }
++            }
++         }
++  } else {
++     char requiredState;
++     if (Channel->Frequency() >= Setup.LnbSLOF) {
++        requiredState = 1 ;
++     } else {
++        requiredState = 0;
++        }
++     if (Channel->Polarization() == 'v' || Channel->Polarization() == 'V') requiredState += 2;
++
++     for (int i = 0; i < numDevices; i++) {
++         if (this != device[i] && device[i]->GetLNBnr() == LNBnr && device[i]->GetLNBconf() != requiredState) {
++            if (device[i]->Receiving() && device[i]->Priority() > maxBadPriority) {
++               maxBadPriority = device[i]->Priority();
++               }
++            if (device[i]->IsPrimaryDevice()) {
++               PrimaryIsBad = true;
++               }
++            }
++         }
++     }
++  if (PrimaryIsBad && maxBadPriority == -2) {
++     maxBadPriority = -1;
++     }
++  if (Setup.VerboseLNBlog) { 
++     isyslog("LNB %d: Request for channel %d on device %d. MaxBadPriority is %d", LNBnr, Channel->Number(), this->DeviceNumber(), maxBadPriority);
++     }
++  return maxBadPriority;
++}
++#endif /* LNBSHARE */
++
+ cDevice *cDevice::GetDevice(int Index)
+ {
+   return (0 <= Index && Index < numDevices) ? device[Index] : NULL;
+@@ -451,6 +563,10 @@ cDevice *cDevice::GetDevice(const cChann
+   cCamSlot *s = NULL;
+ 
+   uint32_t Impact = 0xFFFFFFFF; // we're looking for a device with the least impact
++#if 1 /* ifdef USE_LNBSHARE */
++  int badPriority;
++  uint imp2;
++#endif /* LNBSHARE */
+   for (int j = 0; j < NumCamSlots || !NumUsableSlots; j++) {
+       if (NumUsableSlots && SlotPriority[j] > MAXPRIORITY)
+          continue; // there is no CAM available in this slot
+@@ -483,7 +599,30 @@ cDevice *cDevice::GetDevice(const cChann
+              imp <<= 1; imp |= NumUsableSlots ? 0 : device[i]->HasCi();                                              // avoid cards with Common Interface for FTA channels
+              imp <<= 1; imp |= device[i]->HasDecoder();                                                              // avoid full featured cards
+              imp <<= 1; imp |= NumUsableSlots ? !ChannelCamRelations.CamDecrypt(Channel->GetChannelID(), j + 1) : 0; // prefer CAMs that are known to decrypt this channel
++#if 1 /* ifdef USE_LNBSHARE */
++       badPriority = device[i]->GetMaxBadPriority(Channel);
++       if (badPriority >= Priority || (badPriority == -1 && Priority < Setup.PrimaryLimit)) {
++            // channel is not available for the requested prioity
++            imp = 0xFFFFFFFF;
++         } else {
++            switch (badPriority) {
++               case -2: // not affected by LNB-sharing
++                  imp2 = 0;
++                  break;
++               case -1: // the primary device would need a channel switch
++                  imp += 1 <<  17;
++                  imp2 = 0xFFFFFFFF | 1 << 17;
++                  break;
++               default: // a device receiving with lower priority would need to be stopped
++                  imp += badPriority << 8;
++                  imp2 = 0xFFFFFFFF | badPriority << 8;
++                  break;
++               }
++            }
++         if (imp < Impact && imp2 < Impact) {
++#else
+              if (imp < Impact) {
++#endif /* LNBSHARE */
+                 // This device has less impact than any previous one, so we take it.
+                 Impact = imp;
+                 d = device[i];
+@@ -779,7 +918,11 @@ bool cDevice::ProvidesTransponder(const 
+ bool cDevice::ProvidesTransponderExclusively(const cChannel *Channel) const
+ {
+   for (int i = 0; i < numDevices; i++) {
++#if 1 /* ifdef USE_LNBSHARE */
++      if (device[i] && device[i] != this && device[i]->ProvidesTransponder(Channel) && device[i]->GetLNBnr() != LNBnr)
++#else
+       if (device[i] && device[i] != this && device[i]->ProvidesTransponder(Channel))
++#endif /* LNBSHARE */
+          return false;
+       }
+   return true;
+@@ -802,6 +945,24 @@ bool cDevice::MaySwitchTransponder(void)
+ 
+ bool cDevice::SwitchChannel(const cChannel *Channel, bool LiveView)
+ {
++#if 1 /* ifdef USE_LNBSHARE */
++  cDevice *tmpDevice;
++  if (this->GetMaxBadPriority(Channel) >= 0) {
++     Skins.Message(mtInfo, tr("Channel locked by LNB!"));
++     return false;
++     }
++  while ((tmpDevice = GetBadDevice(Channel)) != NULL) {
++        if (tmpDevice->IsPrimaryDevice() && LiveView)
++           tmpDevice->SwitchChannelForced(Channel, true);
++        else
++           tmpDevice->SwitchChannelForced(Channel, false);
++        }
++  return SwitchChannelForced(Channel, LiveView);
++}
++
++bool cDevice::SwitchChannelForced(const cChannel *Channel, bool LiveView)
++{
++#endif /* LNBSHARE */
+   if (LiveView) {
+      isyslog("switching to channel %d", Channel->Number());
+      cControl::Shutdown(); // prevents old channel from being shown too long if GetDevice() takes longer
+@@ -832,7 +993,11 @@ bool cDevice::SwitchChannel(int Directio
+      while ((channel = Channels.GetByNumber(n, Direction)) != NULL) {
+            // try only channels which are currently available
+         if (PinPatch::ChildLock::IsChannelProtected(channel) == false)
++#if 1 /* ifdef USE_LNBSHARE */
++           if (PrimaryDevice()->GetMaxBadPriority(channel) < 0 && (GetDevice(channel, 0, true)))
++#else
+            if (GetDevice(channel, 0, true))
++#endif /* LNBSHARE */
+               break;
+            n = channel->Number() + Direction;
+            }
+@@ -868,11 +1033,37 @@ eSetChannelResult cDevice::SetChannel(co
+ 
+   eSetChannelResult Result = scrOk;
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++  char requiredState;
++  if (Channel->Frequency() >= Setup.LnbSLOF) {
++     requiredState = 1;
++  } else {
++     requiredState = 0;
++     }
++  if (Channel->Polarization() == 'v' || Channel->Polarization() == 'V') requiredState += 2;
++  if (Setup.VerboseLNBlog) {
++     isyslog("LNB %d: Switching device %d to channel %d", LNBnr, this->DeviceNumber(), Channel->Number());
++     }
++#endif /* LNBSHARE */
++
+   // If this DVB card can't receive this channel, let's see if we can
+   // use the card that actually can receive it and transfer data from there:
+ 
+   if (NeedsTransferMode) {
+      if (Device && CanReplay()) {
++#if 1 /* ifdef USE_LNBSHARE */
++        if (Device->GetLNBnr() == LNBnr) {
++           if (LNBstate != requiredState || (Setup.DiSEqC && LNBsource != (int*) Diseqcs.Get(Channel->Source(), Channel->Frequency(), Channel->Polarization())) ) {
++              if (IsPrimaryDevice()) {
++                 SetChannelDevice(Channel, true);
++              } else {
++                 SetChannelDevice(Channel, false);
++                 }
++              LNBstate = requiredState;
++              LNBsource = (int*) Diseqcs.Get(Channel->Source(), Channel->Frequency(), Channel->Polarization());
++              }
++           }
++#endif /* LNBSHARE */
+         cStatus::MsgChannelSwitch(this, 0); // only report status if we are actually going to switch the channel
+         if (Device->SetChannel(Channel, false) == scrOk) // calling SetChannel() directly, not SwitchChannel()!
+            cControl::Launch(new cTransferControl(Device, Channel->GetChannelID(), Channel->Vpid(), Channel->Apids(), Channel->Dpids(), Channel->Spids()));
+@@ -890,6 +1081,10 @@ eSetChannelResult cDevice::SetChannel(co
+         sectionHandler->SetStatus(false);
+         sectionHandler->SetChannel(NULL);
+         }
++#if 1 /* ifdef USE_LNBSHARE */
++     LNBstate = requiredState;
++     LNBsource = (int*) Diseqcs.Get(Channel->Source(), Channel->Frequency(), Channel->Polarization());
++#endif /* LNBSHARE */
+      // Tell the camSlot about the channel switch and add all PIDs of this
+      // channel to it, for possible later decryption:
+      if (camSlot)
+diff -p -up vdr-1.6.0/device.h.orig vdr-1.6.0/device.h
+--- vdr-1.6.0/device.h.orig	2009-07-25 21:25:34.221092223 +0300
++++ vdr-1.6.0/device.h	2009-07-25 21:28:03.353093110 +0300
+@@ -160,6 +160,31 @@ public:
+          ///< GetDevice(const cChannel, int, bool).
+   static void SetSourceCaps(int Index = -1);
+          ///< Sets the SourceCaps of the given device according to the Setup data.
++#if 1 /* ifdef USE_LNBSHARE */
++private:
++  char LNBstate;  // Current frequency band and polarization of the DVB-tuner
++//  cDiseqc *LNBsource;  // can not #include "diseqc.h". A workaround follows:
++  int *LNBsource;  // [DiSEqC] DiSEqC-Source
++  int LNBnr;      // Number of LNB used
++public:
++  char GetLNBconf(void) { return LNBstate; }
++  int *GetLNBsource(void) { return LNBsource; }
++  int GetLNBnr(void) { return LNBnr; }
++  static void SetLNBnr(void);
++  cDevice *GetBadDevice(const cChannel *Channel);
++         ///< Returns NULL if there is no device which uses the same LNB or if
++         ///< all of those devices are tuned to the same frequency band and 
++         ///< polarization as of the requested channel.
++         ///< Otherwise returns the first device found.
++  int GetMaxBadPriority(const cChannel *Channel);
++         ///< Returns the highest priority of all receiving devices which use
++         ///< the same LNB and are tuned to a different frequency band or 
++         ///< polarization as of the requested channel.
++         ///< Returns -1 if there are no such devices, but the primary device 
++         ///< would be affected by switching to the requested channel.
++         ///< Returns -2 if there are no such devices and the primary device 
++         ///< would not be affected by switching to the requested channel.
++#endif /* LNBSHARE */
+   static void Shutdown(void);
+          ///< Closes down all devices.
+          ///< Must be called at the end of the program.
+@@ -279,6 +304,13 @@ public:
+   bool SwitchChannel(const cChannel *Channel, bool LiveView);
+          ///< Switches the device to the given Channel, initiating transfer mode
+          ///< if necessary.
++
++#if 1 /* ifdef USE_LNBSHARE */
++  bool SwitchChannelForced(const cChannel *Channel, bool LiveView);
++         ///< Switches the device to the given channel, initiating transfer mode
++         ///< if necessary. Forces the switch without taking care of the LNB configuration.
++#endif /* LNBSHARE */
++
+   static bool SwitchChannel(int Direction);
+          ///< Switches the primary device to the next available channel in the given
+          ///< Direction (only the sign of Direction is evaluated, positive values
+diff -p -up vdr-1.6.0/eitscan.c.orig vdr-1.6.0/eitscan.c
+--- vdr-1.6.0/eitscan.c.orig	2006-01-07 16:10:17.000000000 +0200
++++ vdr-1.6.0/eitscan.c	2009-07-25 21:28:03.360093406 +0300
+@@ -151,9 +151,17 @@ void cEITScanner::Process(void)
+                             if (Device->ProvidesTransponder(Channel)) {
+                                if (!Device->Receiving()) {
+                                   bool MaySwitchTransponder = Device->MaySwitchTransponder();
++#if 1 /* ifdef USE_LNBSHARE */
++                                  if (MaySwitchTransponder && Device->GetMaxBadPriority(Channel) == -2 || Device->ProvidesTransponderExclusively(Channel) && Device->GetMaxBadPriority(Channel) <= -1 && now - lastActivity > Setup.EPGScanTimeout * 3600) {
++#else
+                                   if (MaySwitchTransponder || Device->ProvidesTransponderExclusively(Channel) && now - lastActivity > Setup.EPGScanTimeout * 3600) {
++#endif /* LNBSHARE */
+                                      if (!MaySwitchTransponder) {
++#if 1 /* ifdef USE_LNBSHARE */
++                                        if ((Device == cDevice::ActualDevice() || Device->GetMaxBadPriority(Channel) == -1) && !currentChannel) {
++#else
+                                         if (Device == cDevice::ActualDevice() && !currentChannel) {
++#endif /* LNBSHARE */
+                                            cDevice::PrimaryDevice()->StopReplay(); // stop transfer mode
+                                            currentChannel = Device->CurrentChannel();
+                                            Skins.Message(mtInfo, tr("Starting EPG scan"));
+diff -p -up vdr-1.6.0/Make.config.template.orig vdr-1.6.0/Make.config.template
+--- vdr-1.6.0/Make.config.template.orig	2008-01-13 14:54:09.000000000 +0200
++++ vdr-1.6.0/Make.config.template	2009-07-25 21:28:03.364092833 +0300
+@@ -41,8 +41,14 @@ RCU_DEVICE  = /dev/ttyS1
+ ## Define if you want vdr to not run as root
+ #VDR_USER = vdr
+ 
++LNBSHARE = 1
++
+ ### You don't need to touch the following:
+ 
+ ifdef DVBDIR
+ INCLUDES += -I$(DVBDIR)/include
+ endif
++ifdef LNBSHARE
++DEFINES += -DUSE_LNBSHARE
++endif
++
+diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
+--- vdr-1.6.0/menu.c.orig	2009-07-25 21:27:58.241092850 +0300
++++ vdr-1.6.0/menu.c	2009-07-25 21:28:03.376094472 +0300
+@@ -2879,6 +2879,23 @@ void cMenuSetupLNB::Setup(void)
+ 
+   Clear();
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++  int numSatDevices = 0;
++  for (int i = 0; i < cDevice::NumDevices(); i++) {
++      if (cDevice::GetDevice(i)->ProvidesSource(cSource::stSat)) numSatDevices++;
++      }
++  if (numSatDevices > 1) {
++     char tmp[30];
++     for (int i = 1; i <= cDevice::NumDevices(); i++) {
++         if (cDevice::GetDevice(i - 1)->ProvidesSource(cSource::stSat)) {
++            sprintf( tmp, tr("Setup.LNB$DVB device %d uses LNB No."), i);
++            Add(new cMenuEditIntItem( tmp, &data.CardUsesLNBnr[i - 1], 1, numSatDevices ));
++            }
++         }
++     }
++  Add(new cMenuEditBoolItem(tr("Setup.LNB$Log LNB usage"), &data.VerboseLNBlog));
++#endif /* LNBSHARE */
++
+   Add(new cMenuEditBoolItem(tr("Setup.LNB$Use DiSEqC"),               &data.DiSEqC));
+   if (!data.DiSEqC) {
+      Add(new cMenuEditIntItem( tr("Setup.LNB$SLOF (MHz)"),               &data.LnbSLOF));
+@@ -2895,6 +2912,10 @@ eOSState cMenuSetupLNB::ProcessKey(eKeys
+   int oldDiSEqC = data.DiSEqC;
+   eOSState state = cMenuSetupBase::ProcessKey(Key);
+ 
++#if 1 /* ifdef USE_LNBSHARE */
++  if (Key == kOk) cDevice::SetLNBnr();
++#endif /* LNBSHARE */
++
+   if (Key != kNone && data.DiSEqC != oldDiSEqC)
+      Setup();
+   return state;
+@@ -3708,7 +3729,11 @@ cChannel *cDisplayChannel::NextAvailable
+      while (Channel) {
+            Channel = Direction > 0 ? Channels.Next(Channel) : Channels.Prev(Channel);
+         if (PinPatch::ChildLock::IsChannelProtected(Channel) == false)                                                       
++#if 1 /* ifdef USE_LNBSHARE */
++           if (Channel && !Channel->GroupSep() && cDevice::GetDevice(Channel, 0, true) && cDevice::PrimaryDevice()->GetMaxBadPriority(Channel) < 0)
++#else
+            if (Channel && !Channel->GroupSep() && cDevice::GetDevice(Channel, 0, true))
++#endif /* LNBSHARE */
+               return Channel;
+            }
+      }
+@@ -4333,6 +4358,19 @@ bool cRecordControls::Start(cTimer *Time
+      int Priority = Timer ? Timer->Priority() : Pause ? Setup.PausePriority : Setup.DefaultPriority;
+      cDevice *device = cDevice::GetDevice(channel, Priority, false);
+      if (device) {
++#if 1 /* ifdef USE_LNBSHARE */
++        cDevice *tmpDevice;
++        while ((tmpDevice = device->GetBadDevice(channel))) {
++              if (tmpDevice->Replaying() == false) {
++//               Stop(tmpDevice);
++                 if (tmpDevice->IsPrimaryDevice() )
++                    tmpDevice->SwitchChannelForced(channel, true);
++                 else
++                    tmpDevice->SwitchChannelForced(channel, false);
++              } else
++                 tmpDevice->SwitchChannelForced(channel, false);
++              }
++#endif /* LNBSHARE */
+         dsyslog("switching device %d to channel %d", device->DeviceNumber() + 1, channel->Number());
+         if (!device->SwitchChannel(channel, false)) {
+            ShutdownHandler.RequestEmergencyExit();

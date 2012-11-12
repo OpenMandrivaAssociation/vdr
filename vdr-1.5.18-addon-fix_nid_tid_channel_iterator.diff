@@ -1,0 +1,13 @@
+--- ../vdr-1.5.18-dvbs2-other/channels.c	2008-03-19 22:34:14.000000000 +0100
++++ channels.c	2008-04-01 19:28:45.000000000 +0200
+@@ -1075,8 +1075,8 @@ cIterator<cChannel> cChannels::GetChanne
+        }
+     virtual void *First(void) { return FindMatchingChannel(false, true); }
+     virtual void *Last(void)  { return FindMatchingChannel(true,  true); }
+-    virtual void *Prev(void)  { return FindMatchingChannel(false); }
+-    virtual void *Next(void)  { return FindMatchingChannel(true);  }
++    virtual void *Prev(void)  { return FindMatchingChannel(true);  }
++    virtual void *Next(void)  { return FindMatchingChannel(false); }
+     virtual void *Current(void) const  { return current ? (cChannel *)current->Object() : NULL; }
+     };
+ 

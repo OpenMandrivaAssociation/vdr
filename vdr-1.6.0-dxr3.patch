@@ -1,0 +1,39 @@
+Index: vdr-1.6.0/dvbsubtitle.c
+===================================================================
+--- vdr-1.6.0/dvbsubtitle.c
++++ vdr-1.6.0/dvbsubtitle.c	2008-04-25 14:04:32.000000000 +0300
+@@ -985,6 +985,7 @@
+   int NumAreas = Page->regions.Count();
+   int Bpp = 8;
+   bool Reduced = false;
++  if (osd->CanHandleOver2BitSubtitles()) {
+   while (osd->CanHandleAreas(Areas, NumAreas) != oeOk) {
+         int HalfBpp = Bpp / 2;
+         if (HalfBpp >= 2) {
+@@ -999,6 +1000,14 @@
+         else
+            return; // unable to draw bitmaps
+         }
++  } else {
++    for (int i = 0; i < NumAreas; i++) {
++	 if (Areas[i].bpp > 2) {
++            Areas[i].bpp = 2;
++            Reduced = true;
++         }
++    }
++  }
+   if (Reduced) {
+      for (int i = 0; i < NumAreas; i++) {
+          cSubtitleRegion *sr = Page->regions.Get(i);
+Index: vdr-1.6.0/osd.h
+===================================================================
+--- vdr-1.6.0/osd.h
++++ vdr-1.6.0/osd.h	2008-04-25 14:01:09.000000000 +0300
+@@ -401,6 +401,7 @@
+        ///< 7: vertical,   falling, upper
+   virtual void Flush(void);
+        ///< Actually commits all data to the OSD hardware.
++  virtual bool CanHandleOver2BitSubtitles(void) { return true; }
+   tArea vidWin;
+   };
+ 
