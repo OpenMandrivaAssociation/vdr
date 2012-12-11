@@ -1,0 +1,8 @@
+
+# Get EPG for this many days each night
+# default: disabled
+# SKYEPG_DAYS=3
+
+# Channel source
+# default: S28.2E
+# SKYEPG_SOURCE=S28.2E

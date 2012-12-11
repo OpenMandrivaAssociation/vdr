@@ -1,0 +1,15 @@
+#!/bin/sh
+VDR_CONFIGDIR="/etc/vdr"
+VDR_SVDRP_PORT=
+SKYEPG_DAYS=
+SKYEPG_SOURCE=
+. /etc/sysconfig/vdr
+. /etc/sysconfig/vdr-sky
+ARGS=
+[ -n "$SKYEPG_DAYS" ] && ARGS="$ARGS -D $SKYEPG_DAYS" || exit 0
+[ -n "$SKYEPG_SOURCE" ] && ARGS="$ARGS -S $SKYEPG_SOURCE"
+[ -n "$VDR_SVDRP_PORT" ] && ARGS="$ARGS -p $VDR_SVDRP_PORT"
+
+/usr/bin/getskyepg.pl \
+	-c $VDR_CONFIGDIR/plugins/sky/channels.conf.sky \
+	$ARGS

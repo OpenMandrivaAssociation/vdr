@@ -1,0 +1,243 @@
+#!/bin/bash
+
+# runvdr: Reads the configuration and runs VDR
+#
+# If VDR exits abnormally, the driver will be reloaded if
+# configured so and VDR restarted.
+#
+# Maintainer: Anssi Hannula <anssi@mandriva.org>
+#
+# Some parts originate from SuSE Linux runvdr, which is:
+# original by Klaus Schmidinger
+# adapted and enhanced for SuSE Linux by Ludwig Nussel
+#
+
+if [[ "$1" == "--background" ]]; then
+	setsid $0 </dev/null 2>&1 | \
+		setsid logger -it "${0##*/}" &>/dev/null &
+	exit 0
+fi
+
+VDR_INSTANCE="${0##*/run}"
+echo "Started runvdr for $VDR_INSTANCE"
+
+# default values, see /etc/sysconfig/vdr
+VDR_BINARY="vdr"
+VDR_PLUGINS="any"
+VDR_DVBMODULES=""
+VDR_CONFIGDIR="/var/lib/vdr/config"
+VDR_LOGLEVEL=3
+VDR_SVDRP_PORT=2001
+VDR_WATCHDOG=
+VDR_LIRC=no
+VDR_RCU=""
+VDR_TERMINAL=""
+VDR_MUTE=no
+VDR_CARDS=""
+VDR_SHUTDOWN_SCRIPT=""
+VDR_RECORD_SCRIPT=""
+VDR_MAX_RESTART=3
+VDR_RESTART_INTERVAL=60
+VDR_FAIL_MAILTO=""
+VDR_FAIL_BOOT=
+VDR_ADDITIONAL_ARGS=""
+VDR_RELOADDVB=no
+VDR_USER="vdr"
+VDR_VIDEO="/var/lib/vdr/video"
+VDR_VFAT=no
+VDR_GRAB="-"
+VDR_AUDIO_CMD=
+VDR_EPG_FILE=
+VDR_USERDUMP=no
+
+. /etc/sysconfig/$VDR_INSTANCE || exit 1
+
+echo $$ > /var/run/run${VDR_INSTANCE}.pid
+
+export HOME=$(getent passwd $VDR_USER | cut -d: -f6)
+cd $HOME
+
+runvdrexit()
+{
+        rm -f /var/run/run${VDR_INSTANCE}.pid
+        exit $1
+}
+
+getargs()
+{
+	if eval [ -n \"\$VDR_PLUGIN_ARGS_${p//-/_}\" ]; then
+		eval echo \"\$VDR_PLUGIN_ARGS_${p//-/_}\"
+	else
+		if [ -e "/usr/share/vdr/defaults/$p.defaults" ]; then
+			. /usr/share/vdr/defaults/$p.defaults
+			[ -e "/etc/sysconfig/vdr-$p" ] && . /etc/sysconfig/vdr-$p
+			if eval [ -n \"\$VDR_PLUGIN_ARGS_${p//-/_}\" ]; then
+				eval echo \"\$VDR_PLUGIN_ARGS_${p//-/_}\"
+			else
+				. /usr/share/vdr/defaults/$p.params
+			fi
+		fi
+	fi
+}
+
+makeargs()
+{
+    [ -n "$VDR_CONFIGDIR" ] && echo "-c" "\"$VDR_CONFIGDIR\""
+    [ -n "$VDR_LOGLEVEL" ] && echo "-l" "\"$VDR_LOGLEVEL\""
+    [ -n "$VDR_SVDRP_PORT" ] && echo "-p" "\"$VDR_SVDRP_PORT\""
+    [ -n "$VDR_WATCHDOG" ] && echo "-w" "\"$VDR_WATCHDOG\""
+    [ -n "$VDR_RECORD_SCRIPT" ] && echo "-r" "\"$VDR_RECORD_SCRIPT\""
+    [ -n "$VDR_SHUTDOWN_SCRIPT" ] && echo "-s" "\"$VDR_SHUTDOWN_SCRIPT\""
+    [ -n "$VDR_RCU" ] && echo "--rcu=\"$VDR_RCU\""
+    [ -n "$VDR_TERMINAL" ] && echo "-t" "\"$VDR_TERMINAL\"" || echo "--no-kbd"
+    [ -n "$VDR_VIDEO" ] && echo "-v" "\"$VDR_VIDEO\""
+    [ -n "$VDR_USER" ] && echo "-u" "\"$VDR_USER\""
+    [ -n "$VDR_GRAB" ] && echo "-g" "\"$VDR_GRAB\""
+    [ -n "$VDR_EPG_FILE" ] && echo "-E" "\"$VDR_EPG_FILE\""
+    [ -n "$VDR_AUDIO_CMD" ] && echo "-a" "\"$VDR_AUDIO_CMD\""
+    [ "$VDR_MUTE" = yes ] && echo "-m"
+    [ "$VDR_LIRC" = yes ] && echo "--lirc"
+    [ "$VDR_USERDUMP" = yes ] && echo "--userdump"
+    [ "$VDR_VFAT" = yes ] && echo "--vfat"
+
+    for c in $VDR_CARDS; do
+	echo "-D$c"
+    done
+	
+    for p in $installed_plugins; do
+    	eval VDR_PLUGIN_ARGS_${p//-/_}=
+    done
+    . /etc/sysconfig/$VDR_INSTANCE
+    
+    for p in $installed_plugins; do
+        option="-P\"$p"
+        args="$(getargs)"
+	[ -n "$args" ] && option="$option $args"
+        echo "$option\""
+    done
+
+    [ -n "$VDR_ADDITIONAL_ARGS" ] && echo "$VDR_ADDITIONAL_ARGS"
+}
+
+processplugins()
+{
+        installed_plugins=" "
+        missing_plugins=""
+        local missing=0
+        while read plugin; do
+                if [ "$plugin" = "--" ]; then
+                        missing=1
+                elif [ "$missing" = 0 ]; then
+                        installed_plugins="${installed_plugins/ $plugin / }$plugin "
+                else
+                        missing_plugins="$missing_plugins $plugin"
+                fi
+        done < <($VDR_BINARY --version | /bin/gawk -v plugins="$VDR_PLUGINS" '
+		{
+			if ($1 != "vdr")
+				inst[$1]=1
+		}
+		END {
+			fields = split(plugins,want)
+			for (i=1;i<=fields;i++) {
+				if (want[i] == "any") {
+					for (j in inst)
+						print j
+				} else if (want[i] in inst) {
+					print want[i]
+					delete inst[want[i]]
+				} else {
+					notinst[want[i]]=1
+					delete want[i]
+				}
+			}
+			print "--"
+			for (i in notinst)
+				print i
+		}')
+}
+
+killvdr()
+{
+  	kill -TERM $1
+  	SECS=0
+  	while [ -d "/proc/$1" ]; do
+  		sleep 1
+  		SECS=$((SECS+1))
+  		test $SECS -eq 20 && break
+  	done
+  	[ -d "/proc/$1" ] && kill -KILL $1
+  	runvdrexit 0
+}
+
+# Some kernels need to have this loaded in order for VDR not to abort:
+/sbin/modprobe capability &>/dev/null
+
+# Load driver if it hasn't been loaded already:
+newmodulesloaded=
+for dvbmodule in $VDR_DVBMODULES; do
+	if ! cat /proc/modules | cut -d" " -f1 | grep -q "^$dvbmodule$"; then
+		/sbin/modprobe $dvbmodule
+		newmodulesloaded=1
+	fi
+done
+[ -n "$newmodulesloaded" ] && sleep 2
+
+last_restart=`date +%s`
+
+[ -e "$VDR_CONFIGDIR/channels.conf" ] || touch "$VDR_CONFIGDIR/channels.conf"
+
+while true; do
+        . /etc/sysconfig/$VDR_INSTANCE || runvdrexit 1
+
+	processplugins
+
+	echo -n "Starting Video Disk Recorder "
+	[ -n "$installed_plugins" ] && echo "[$installed_plugins]" || echo
+	[ -n "$missing_plugins" ] && echo "  missing plugins:$missing_plugins"
+
+	eval $VDR_BINARY $(makeargs) '& VDR_PID=$!'
+	trap "killvdr $VDR_PID" TERM
+	wait $VDR_PID
+	status="$?"
+	trap - TERM
+	if [ "$status" -eq 0 ]; then
+	      echo "VDR exited normally"
+	      runvdrexit 0
+	elif [ "$status" -eq 2 ]; then
+	      echo "VDR configuration error"
+	      runvdrexit 1
+	fi
+	num_restart=$((num_restart+1))
+	restarted=`date +%s`
+	if [ $((restarted-last_restart)) -le "$VDR_RESTART_INTERVAL" -a "$num_restart" -gt "$VDR_MAX_RESTART" ]; then
+		# too many restarts within interval
+		echo "VDR died too often, exiting"
+		if [ -n "$VDR_FAIL_MAILTO" ]; then
+			echo "VDR died $num_restart times in " $((restarted-last_restart)) " seconds" | \
+				mail -s "VDR died at `date`" "$VDR_FAIL_MAILTO"
+		fi
+		if [ -n "$VDR_FAIL_BOOT" ]; then
+			echo "Reboot in $VDR_FAIL_BOOT seconds"
+			sleep $VDR_FAIL_BOOT
+			echo "Rebooting"
+			/sbin/reboot
+		fi
+		runvdrexit 1
+	elif [ $((restarted-last_restart)) -gt "$VDR_RESTART_INTERVAL" ]; then
+		# last restart too long ago, reset
+		last_restart=$restarted
+		num_restart=0
+	fi
+
+	echo "VDR died, restarting"
+	if [ "$VDR_RELOADDVB" = yes ]; then
+		/sbin/rmmod $VDR_DVBMODULES
+		for dvbmodule in $VDR_DVBMODULES; do
+			/sbin/modprobe $dvbmodule
+		done
+		sleep 2
+	fi
+done
+
+runvdrexit 0

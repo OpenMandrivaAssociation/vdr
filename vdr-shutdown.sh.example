@@ -1,0 +1,11 @@
+#!/bin/bash
+
+next_timer="$1"		# time in seconds of next timer
+until_timer="$2"	# time in seconds until next timer (may be negative)
+timer_channel="$3"	# channel recorded by next timer
+timer_fname="$4"	# filename for next recording
+manual_shutdown="$5"	# 1 if shutdown reqested by user
+
+# you need to add the following line to /etc/sudoers to make this script work
+# vdr	ALL=NOPASSWD: /sbin/halt
+sudo /sbin/halt

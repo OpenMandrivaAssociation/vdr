@@ -1,0 +1,163 @@
+
+# VDR Mandriva Linux configuration
+# see documentation for more info
+
+# Note that you can setup a system that runs multiple vdr daemons
+# simultaneusly by issuing the following commands:
+# ln -s vdr /etc/init.d/vdr2
+# ln -s runvdr /usr/bin/runvdr2
+# chkconfig --add vdr2
+# cp /etc/sysconfig/vdr /etc/sysconfig/vdr2
+# The other vdr daemons will however never be restarted
+# automatically.
+
+# List of plugins to load, separated by space. Special value "any" as
+# one of the entries will expand to a list of all the non-specified
+# installed plugins.
+# default: load all installed plugins
+# VDR_PLUGINS="any"
+
+# Plugin parameters can be set in /etc/sysconfig/vdr-pluginname or
+# you can set them manually below. You can also use
+# VDR_PLUGIN_ARGS_pluginname in /etc/sysconfig/vdr-pluginname as
+# well. Note that using VDR_PLUGIN_ARGS_xxxx in this file disables
+# the automatic configuration merging of this file during upgrades.
+# If a plugin name contains "-" you have to use "_" in its place.
+# examples:
+# VDR_PLUGIN_ARGS_someplugin="--example --parameters"
+# VDR_PLUGIN_ARGS_another_plugin="--parameter"
+
+# Restart VDR on plugin install/remove/upgrade events. Plugin events
+# are triggered only by plugins which are enabled above.
+# default: restart VDR when an active plugin is upgraded
+# VDR_RESTART_ON_INSTALL=no
+# VDR_RESTART_ON_REMOVE=no
+# VDR_RESTART_ON_UPGRADE=yes
+
+# List of DVB modules, if you want to modprobe and/or rmmod them
+# when VDR starts and stops. Note that harddrake should load the DVB
+# modules automatically and that rmmoding them should not be
+# necessary. Therefore use this configuration option only if you
+# experience problems.
+# If you set this, please list only the device drivers. For example
+# if you have an FF card, CX88-based card and a Skystar2-based card:
+# VDR_DVBMODULES="dvb-ttpci b2c2-flexcop-pci cx88-dvb"
+# default: no automatic modprobe or rmmod
+# VDR_DVBMODULES=""
+
+# Name of the VDR binary.
+# default: "vdr"
+# VDR_BINARY="vdr"
+
+# directory where vdr stores its config files.
+# default: /var/lib/vdr/config
+# VDR_CONFIGDIR="/var/lib/vdr/config"
+
+# amount of log messages, see vdr --help
+# default: 3
+# VDR_LOGLEVEL=3
+
+# which port to listen for SVDRP commands, 0 to disable
+# default: 2001
+# VDR_SVDRP_PORT=2001
+
+# watchdog timeout in seconds
+# default: no watchdog
+# VDR_WATCHDOG=
+
+# use LIRC remote control (yes|no)
+# default: no LIRC
+# VDR_LIRC=no
+
+# use a given RCU remote control, for example "/dev/ttyS1"
+# Note that user vdr has to have access rights to it. Usually
+# adding user vdr to group uucp is enough.
+# default: no RCU
+# VDR_RCU=""
+
+# Use given terminal to control VDR, for example "/dev/tty9".
+# Note that user vdr has to have a permission to it.
+# If you add user "vdr" to group "tty", VDR will have permissions
+# to tty7 and above, but not tty6 and below.
+# default: no terminal
+# VDR_TERMINAL=""
+
+# set to yes to start vdr with muted sound. no to enable sound
+# default: mute disabled
+# VDR_MUTE=no
+
+# numbers of dvb cards which vdr should use, separated by space
+# default: use all
+# VDR_CARDS=""
+
+# shutdown script for vdr, e.g. /etc/vdr/shutdown.sh
+# simple example script is provided in the documentation
+# default: no script
+# VDR_SHUTDOWN_SCRIPT=""
+
+# record script for vdr, e.g. /etc/vdr/record.sh
+# default: no script
+# VDR_RECORD_SCRIPT=""
+
+# VDR is allowed to die at most VDR_MAX_RESTART times in VDR_RESTART_INTERVAL
+# seconds. After that VDR is not restarted anymore.
+# default: 3 times
+# VDR_MAX_RESTART=3
+
+# vdr is allowed to die at most VDR_MAX_RESTART times in VDR_RESTART_INTERVAL
+# seconds
+# default: 60 seconds
+# VDR_RESTART_INTERVAL=60
+
+# If vdr dies too often, an email will is sent to this address.
+# For this to work, /bin/mail has to be present. It is provided
+# e.g. in "nail" package.
+# default: no email
+# VDR_FAIL_MAILTO=""
+
+# reboot after specified number of seconds if vdr died too often
+# default: no reboot
+# VDR_FAIL_BOOT=
+
+# additional arguments passed to vdr binary
+# default: no additional arguments
+# VDR_ADDITIONAL_ARGS=""
+
+# reload dvb drivers if vdr crashes (VDR_DVBMODULES should be set too)
+# default: no reloading
+# VDR_RELOADDVB=no
+
+# user VDR runs as
+# default: vdr
+# VDR_USER="vdr"
+
+# VDR video dir
+# default: /var/lib/vdr/video
+# VDR_VIDEO="/var/lib/vdr/video"
+
+# encode special chars in recordings, use with a VFAT video partition
+# default: no
+# VDR_VFAT=no
+
+# VDR nice level
+# default: 0
+# VDR_NICE=0
+
+# directory for images from the SVDRP command GRAB
+# default: image transfer via telnet only
+# VDR_GRAB="-"
+
+# send Dolby Digital audio to stdin of command AUDIO_CMD
+# default: audio not sent to stdin of any command
+# VDR_AUDIO_CMD=""
+
+# write the EPG data into the given FILE
+# '-' disables this
+# if FILE is a directory, the default EPG file will be created in that
+# directory
+# default: epg.data in the video directory
+# VDR_EPG_FILE=""
+
+# allow coredumps when not running as root
+# default: no
+# VDR_USERDUMP=no

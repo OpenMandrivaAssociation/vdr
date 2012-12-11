@@ -1,0 +1,154 @@
+#!/bin/sh
+#
+# chkconfig: 345 94 6
+# description: Video Disk Recorder
+
+### BEGIN INIT INFO
+# Provides: vdr
+# Should-Start: $network $local_fs $remote_fs dkms
+# Default-Start: 3 4 5
+# Short-Description: Video Disk Recorder
+# Description: This script launches the Video Disk Recorder
+### END INIT INFO
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Support symlinking initscripts to run multiple vdr daemons with different
+# configurations
+DAEMONNAME="vdr${0##*vdr}"
+RUNVDRNAME="run${DAEMONNAME}"
+RETVAL=0
+
+# Get config.
+VDR_NICE=0
+VDR_PLUGINS="any"
+VDR_RESTART_ON_INSTALL=no
+VDR_RESTART_ON_REMOVE=no
+VDR_RESTART_ON_UPGRADE=yes
+. /etc/sysconfig/$DAEMONNAME
+NICELEVEL="$VDR_NICE"
+
+LOCKFILE=/var/lock/subsys/$DAEMONNAME
+
+run_ccp_for_plugin() {
+	PLUGIN="$1"
+	if test -e /etc/sysconfig/vdr-$PLUGIN.rpmnew && test -e /etc/sysconfig/vdr-$PLUGIN && \
+			test $(stat -c%Z /etc/sysconfig/vdr-$PLUGIN.rpmnew) -gt $(stat -c%Z /etc/sysconfig/vdr-$PLUGIN); then
+		ccp --backup --delete --ifexists --set NoOrphans --oldfile \
+			/etc/sysconfig/vdr-$PLUGIN --newfile /etc/sysconfig/vdr-$PLUGIN.rpmnew
+	fi
+}
+
+start() {
+	[ -e $LOCKFILE ] && return
+	gprintf "Starting %s: " "Video Disk Recorder"
+	daemon env -i BASH_ENV=/etc/profile /bin/bash $RUNVDRNAME --background
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && touch $LOCKFILE
+}
+
+stop() {
+	gprintf "Shutting down %s: " "Video Disk Recorder"
+	# LSB=1 silences killproc
+	LSB=1 killproc $RUNVDRNAME -TERM
+	SECS=0
+	while status $RUNVDRNAME >/dev/null; do
+		sleep 1
+		SECS=$((SECS+1))
+		if [ $SECS -eq 25 ]; then
+			killproc $RUNVDRNAME
+			RETVAL=$?
+			break
+		fi
+	done
+	[ $SECS -eq 25 ] || success "$RUNVDRNAME -TERM"
+	echo
+	rm -f $LOCKFILE
+}
+
+case "$1" in
+  start)
+  	start
+  	;;
+  stop)
+	stop
+  	;;
+  status)
+  	status $RUNVDRNAME
+  	RETVAL=$?
+  	;;
+  reload|restart)
+  	stop
+  	start
+  	;;
+  condrestart)
+	if [ -e $LOCKFILE ]; then
+		stop
+		start
+	fi
+  	;;
+  condrestart_plugin)
+  	case " $VDR_PLUGINS " in *" $2 "*|*" any "*)
+  		stop
+  		start
+  	esac
+  	;;
+  plugin_install)
+	#FILETRIGGERS# exit 0; replaced by plugins_changed on 2009.0+
+  	run_ccp_for_plugin $2
+  	[ "$VDR_RESTART_ON_INSTALL" == "yes" ] || exit 0
+  	status $RUNVDRNAME >/dev/null || exit 0
+  	$0 condrestart_plugin $2
+  	RETVAL=$?
+  	;;
+  plugin_remove)
+	#FILETRIGGERS# exit 0; replaced by plugins_changed on 2009.0+
+  	[ "$VDR_RESTART_ON_REMOVE" == "yes" ] || exit 0
+  	status $RUNVDRNAME >/dev/null || exit 0
+  	$0 condrestart_plugin $2
+  	RETVAL=$?
+  	;;
+  plugin_upgrade)
+	#FILETRIGGERS# exit 0; replaced by plugins_changed on 2009.0+
+  	run_ccp_for_plugin $2
+  	[ "$VDR_RESTART_ON_UPGRADE" == "yes" ] || exit 0
+  	status $RUNVDRNAME >/dev/null || exit 0
+  	$0 condrestart_plugin $2
+  	RETVAL=$?
+  	;;
+  plugins_changed)
+  	restart_vdr_plugins=
+	while [ -n "$2" ] && [ -n "$3" ]; do
+		case "$2" in
+		  --install)
+			run_ccp_for_plugin $3
+			[ "$VDR_RESTART_ON_INSTALL" = "yes" ] && restart_vdr_plugins="$restart_vdr_plugins $3"
+			break
+			;;
+		  --upgrade)
+			run_ccp_for_plugin $3
+			[ "$VDR_RESTART_ON_UPGRADE" = "yes" ] && restart_vdr_plugins="$restart_vdr_plugins $3"
+			break
+			;;
+		  --remove)
+			[ "$VDR_RESTART_ON_REMOVE" = "yes" ] && restart_vdr_plugins="$restart_vdr_plugins $3"
+		esac
+		shift 2
+	done
+	[ -e $LOCKFILE ] || exit 0
+	for plugin in $restart_vdr_plugins; do
+		case " $VDR_PLUGINS " in *" $plugin "*|*" any "*)
+			stop
+			start
+			break 2
+		esac
+	done
+  	;;
+  *)
+  	gprintf "Usage: %s\n" "$0 {start|stop|restart|reload|condrestart|status}"
+  	exit 1
+esac
+
+exit $RETVAL

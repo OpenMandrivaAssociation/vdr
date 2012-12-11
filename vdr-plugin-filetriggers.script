@@ -1,0 +1,32 @@
+#!/bin/awk -f
+# RPM filetriggers handler for VDR plugins
+
+BEGIN { FS="/" }
+
+{
+	sub("^libvdr-", "", $NF)
+	sub("\\.so\\..*$", "", $NF)
+}
+
+# installation or upgrade
+/^\+/ { installs[$NF]=1 }
+
+# removal or upgrade
+/^-/ { removals[$NF]=1 }
+
+END {
+	for (plugin in installs) {
+		if (plugin in removals) {
+			command=command " --upgrade " plugin
+			delete removals[plugin]
+		} else {
+			command=command " --install " plugin
+		}
+	}
+	
+	for (plugin in removals)
+		command=command " --remove " plugin
+
+	system("/etc/rc.d/init.d/vdr plugins_changed" command)
+}
+
