@@ -1,9 +1,6 @@
 
-%define name	vdr
-%define version	1.6.0
 %define maintpatch 2
 %define oapiversion 1.6.0
-%define rel	25
 
 # Increased when ABI compatibility is broken by patches
 # Reset to 1 when %oapiversion is raised
@@ -35,9 +32,9 @@
 %endif
 
 Summary:	Video Disk Recorder - PVR suite
-Name:		%{name}
-Version:	%{version}
-Release:	%mkrel %rel
+Name:	vdr
+Version:	1.6.0
+Release:	26
 Group:		Video
 License:	GPLv2+
 URL:		http://www.tvdr.de/
@@ -154,7 +151,7 @@ BuildRequires:	libcap-devel
 BuildRequires:	libjpeg-devel
 BuildRequires:	ncursesw-devel
 BuildRequires:	fontconfig-devel
-BuildRequires:	freetype2-devel
+BuildRequires:	pkgconfig(freetype2)
 Requires(post): rpm-helper
 Requires(preun): rpm-helper
 Requires(post):	vdr-common = %{version}
