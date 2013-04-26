@@ -148,7 +148,7 @@ done)
 %endif
 
 BuildRequires:	libcap-devel
-BuildRequires:	libjpeg-devel
+BuildRequires:	jpeg-devel
 BuildRequires:	ncursesw-devel
 BuildRequires:	fontconfig-devel
 BuildRequires:	pkgconfig(freetype2)
