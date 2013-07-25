@@ -1,3 +1,4 @@
+%define __noautoreq '.*/bin/awk|.*/bin/gawk'
 
 %define maintpatch 2
 %define oapiversion 1.6.0
@@ -34,7 +35,7 @@
 Summary:	Video Disk Recorder - PVR suite
 Name:	vdr
 Version:	1.6.0
-Release:	26
+Release:	27
 Group:		Video
 License:	GPLv2+
 URL:		http://www.tvdr.de/
