@@ -429,12 +429,58 @@ support them. The most compatible format is 64x48px 16-color xpm.
 For more information on VDR and its plugins, see http://linuxtv.org/vdrwiki/ .
 EOF
 
+
+# Local version of the above post and postun:
+%define plugin_rpmscripts() \
+%post plugin-%{1} \
+if [ "$1" = "1" ] && [ -e %{_initrddir}/%{name} ]; then /sbin/service vdr plugin_install %{1}; fi \
+%postun plugin-%{1} \
+if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr plugin_remove %{1}; else /sbin/service vdr plugin_upgrade %{1}; fi; fi
+
+%build
+%make
+%define vdr_plugin_ldflags %(echo "%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
+# [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
+# parallel make disabled, as of 2009-07-28 fails on klodia due to too many threads:
+# "libgomp: Thread creation failed: Resource temporarily unavailable"
+LC_ALL=C make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
+
+# fix locales
+for dir in locale/*_*; do
+	[ $(basename $dir) == "zh_CN" ] && continue
+	# VDR wrongly uses the _COUNTRY identification always
+	rm -rf ${dir%_*}
+	mv $dir ${dir%_*}
+done
+
+%install
+rm -rf %{buildroot}
+
+install -D -m755 vdr %{buildroot}%{_bindir}/vdr
+install -d -m755 %{buildroot}%{vdr_videodir}
+install -d -m755 %{buildroot}%{vdr_chanlogodir}
+install -d -m755 %{buildroot}%{vdr_themedir}
+install -d -m755 %{buildroot}%{vdr_cfgdir}
+ln -s %{vdr_themedir} %{buildroot}%{vdr_cfgdir}/themes
+
+install -D -m644 vdr.1 %{buildroot}%{_mandir}/man1/vdr.1
+install -D -m644 vdr.5 %{buildroot}%{_mandir}/man5/vdr.5
+
+install -d -m755 %{buildroot}%{vdr_plugin_dir}
+install -m755 PLUGINS/src/*/*.so.* %{buildroot}%{vdr_plugin_dir}
+
+install -d -m755 %{buildroot}%{_includedir}/%{name}
+install -d -m755 %{buildroot}%{_includedir}/libsi
+install -m644 include/%{name}/* %{buildroot}%{_includedir}/%{name}
+install -m644 include/libsi/* %{buildroot}%{_includedir}/libsi
+
+install -d -m755 %{buildroot}%{_sysconfdir}/rpm/macros.d
 # The escaping gets a little messy:
 # \$	= plain $ in macros
 # \\	= multiline macro
 # \\\\	= plain \ in macros
 # these and their combinations are the only types of escaping present below:
-cat > vdr.macros <<EOF
+cat > %{buildroot}%{_sysconfdir}/rpm/macros.d/vdr.macros <<EOF
 ## VDR plugin macros ##
 
 %%vdr_version		%{version}-%{release}
@@ -593,53 +639,6 @@ vdr_plugin_params_do <<VDR_PLUGIN_PARAMS_EOF \\
 %endif
 
 EOF
-
-# Local version of the above post and postun:
-%define plugin_rpmscripts() \
-%post plugin-%{1} \
-if [ "$1" = "1" ] && [ -e %{_initrddir}/%{name} ]; then /sbin/service vdr plugin_install %{1}; fi \
-%postun plugin-%{1} \
-if [ -e %{_initrddir}/%{name} ]; then if [ "$1" = "0" ]; then /sbin/service vdr plugin_remove %{1}; else /sbin/service vdr plugin_upgrade %{1}; fi; fi
-
-%build
-%make
-%define vdr_plugin_ldflags %(echo "%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
-# [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-# parallel make disabled, as of 2009-07-28 fails on klodia due to too many threads:
-# "libgomp: Thread creation failed: Resource temporarily unavailable"
-LC_ALL=C make plugins CFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" CXXFLAGS="%optflags %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
-
-# fix locales
-for dir in locale/*_*; do
-	[ $(basename $dir) == "zh_CN" ] && continue
-	# VDR wrongly uses the _COUNTRY identification always
-	rm -rf ${dir%_*}
-	mv $dir ${dir%_*}
-done
-
-%install
-rm -rf %{buildroot}
-
-install -D -m755 vdr %{buildroot}%{_bindir}/vdr
-install -d -m755 %{buildroot}%{vdr_videodir}
-install -d -m755 %{buildroot}%{vdr_chanlogodir}
-install -d -m755 %{buildroot}%{vdr_themedir}
-install -d -m755 %{buildroot}%{vdr_cfgdir}
-ln -s %{vdr_themedir} %{buildroot}%{vdr_cfgdir}/themes
-
-install -D -m644 vdr.1 %{buildroot}%{_mandir}/man1/vdr.1
-install -D -m644 vdr.5 %{buildroot}%{_mandir}/man5/vdr.5
-
-install -d -m755 %{buildroot}%{vdr_plugin_dir}
-install -m755 PLUGINS/src/*/*.so.* %{buildroot}%{vdr_plugin_dir}
-
-install -d -m755 %{buildroot}%{_includedir}/%{name}
-install -d -m755 %{buildroot}%{_includedir}/libsi
-install -m644 include/%{name}/* %{buildroot}%{_includedir}/%{name}
-install -m644 include/libsi/* %{buildroot}%{_includedir}/libsi
-
-install -d -m755 %{buildroot}%{_sysconfdir}/rpm/macros.d
-install -m644 vdr.macros %{buildroot}%{_sysconfdir}/rpm/macros.d
 
 install -d -m755 %{buildroot}%{vdr_plugin_cfgdir}
 install -m644 {diseqc.conf,keymacros.conf,sources.conf,svdrphosts.conf} \
