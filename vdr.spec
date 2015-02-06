@@ -35,7 +35,7 @@
 Summary:	Video Disk Recorder - PVR suite
 Name:	vdr
 Version:	1.6.0
-Release:	28
+Release:	29
 Group:		Video
 License:	GPLv2+
 URL:		http://www.tvdr.de/
