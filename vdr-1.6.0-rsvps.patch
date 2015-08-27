@@ -1,45 +1,41 @@
-Index: vdr-1.6.0/config.c
-===================================================================
---- vdr-1.6.0/config.c
-+++ vdr-1.6.0/config.c	2008-04-15 14:48:30.000000000 +0300
-@@ -255,6 +255,7 @@
+diff -up vdr-2.0.3/config.c.orig vdr-2.0.3/config.c
+--- vdr-2.0.3/config.c.orig	2013-03-18 10:57:50.000000000 +0200
++++ vdr-2.0.3/config.c	2013-10-14 23:11:43.118026137 +0300
+@@ -418,6 +418,7 @@ cSetup::cSetup(void)
    UseSubtitle = 1;
    UseVps = 0;
    VpsMargin = 120;
 +  RsVpsFallback = 0;
    RecordingDirs = 1;
-   VideoDisplayFormat = 1;
-   VideoFormat = 0;
-Index: vdr-1.6.0/config.h
-===================================================================
---- vdr-1.6.0/config.h
-+++ vdr-1.6.0/config.h	2008-04-15 14:48:30.000000000 +0300
-@@ -237,6 +237,7 @@
+   FoldersInTimerMenu = 1;
+   AlwaysSortFoldersFirst = 1;
+diff -up vdr-2.0.3/config.h.orig vdr-2.0.3/config.h
+--- vdr-2.0.3/config.h.orig	2013-08-21 16:44:59.000000000 +0300
++++ vdr-2.0.3/config.h	2013-10-14 23:11:43.118026137 +0300
+@@ -291,6 +291,7 @@ public:
    int UseSubtitle;
    int UseVps;
    int VpsMargin;
 +  int RsVpsFallback;
    int RecordingDirs;
-   int VideoDisplayFormat;
-   int VideoFormat;
-Index: vdr-1.6.0/menu.c
-===================================================================
---- vdr-1.6.0/menu.c
-+++ vdr-1.6.0/menu.c	2008-04-15 14:48:30.000000000 +0300
-@@ -2753,6 +2753,7 @@
+   int FoldersInTimerMenu;
+   int AlwaysSortFoldersFirst;
+diff -up vdr-2.0.3/menu.c.orig vdr-2.0.3/menu.c
+--- vdr-2.0.3/menu.c.orig	2013-04-27 13:32:28.000000000 +0300
++++ vdr-2.0.3/menu.c	2013-10-14 23:11:43.119026150 +0300
+@@ -3139,6 +3139,7 @@ cMenuSetupRecord::cMenuSetupRecord(void)
    Add(new cMenuEditBoolItem(tr("Setup.Recording$Use episode name"),          &data.UseSubtitle));
    Add(new cMenuEditBoolItem(tr("Setup.Recording$Use VPS"),                   &data.UseVps));
    Add(new cMenuEditIntItem( tr("Setup.Recording$VPS margin (s)"),            &data.VpsMargin, 0));
 +  Add(new cMenuEditBoolItem(tr("Setup.Recording$Use running status as VPS fallback"), &data.RsVpsFallback));
    Add(new cMenuEditBoolItem(tr("Setup.Recording$Mark instant recording"),    &data.MarkInstantRecord));
    Add(new cMenuEditStrItem( tr("Setup.Recording$Name instant recording"),     data.NameInstantRecord, sizeof(data.NameInstantRecord)));
-   Add(new cMenuEditIntItem( tr("Setup.Recording$Instant rec. time (min)"),   &data.InstantRecordTime, 1, MAXINSTANTRECTIME));
-Index: vdr-1.6.0/timers.c
-===================================================================
---- vdr-1.6.0/timers.c
-+++ vdr-1.6.0/timers.c	2008-04-15 14:48:30.000000000 +0300
-@@ -412,7 +412,7 @@
-      }
+   Add(new cMenuEditIntItem( tr("Setup.Recording$Instant rec. time (min)"),   &data.InstantRecordTime, 0, MAXINSTANTRECTIME, tr("Setup.Recording$present event")));
+diff -up vdr-2.0.3/timers.c.orig vdr-2.0.3/timers.c
+--- vdr-2.0.3/timers.c.orig	2013-03-29 17:37:16.000000000 +0200
++++ vdr-2.0.3/timers.c	2013-10-14 23:11:43.120026163 +0300
+@@ -436,7 +436,7 @@ bool cTimer::Matches(time_t t, bool Dire
+   deferred = 0;
  
    if (HasFlags(tfActive)) {
 -     if (HasFlags(tfVps) && event && event->Vps()) {

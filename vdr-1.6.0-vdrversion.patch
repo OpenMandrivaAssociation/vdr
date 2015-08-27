@@ -1,16 +1,7 @@
---- vdr-1.6.0/tools.h.version	2008-02-17 14:41:27.000000000 +0100
-+++ vdr-1.6.0/tools.h	2009-02-06 13:16:43.000000000 +0100
-@@ -205,6 +205,7 @@
- bool SpinUpDisk(const char *FileName);
- void TouchFile(const char *FileName);
- time_t LastModifiedTime(const char *FileName);
-+const char *VdrVersion(void);
- cString WeekDayName(int WeekDay);
- cString WeekDayName(time_t t);
- cString WeekDayNameFull(int WeekDay);
---- vdr-1.6.0/tools.c~	2008-03-05 18:23:47.000000000 +0100
-+++ vdr-1.6.0/tools.c	2009-02-06 13:23:26.000000000 +0100
-@@ -27,6 +27,7 @@
+diff -up vdr-2.0.3/tools.c.orig vdr-2.0.3/tools.c
+--- vdr-2.0.3/tools.c.orig	2012-12-08 13:16:30.000000000 +0200
++++ vdr-2.0.3/tools.c	2013-10-14 23:11:42.966024160 +0300
+@@ -27,6 +27,7 @@ extern "C" {
  #include <utime.h>
  #include "i18n.h"
  #include "thread.h"
@@ -18,8 +9,8 @@
  
  int SysLogLevel = 3;
  
-@@ -540,6 +541,11 @@
-   return 0;
+@@ -633,6 +634,11 @@ off_t FileSize(const char *FileName)
+   return -1;
  }
  
 +const char *VdrVersion(void)
@@ -30,3 +21,14 @@
  // --- cTimeMs ---------------------------------------------------------------
  
  cTimeMs::cTimeMs(int Ms)
+diff -up vdr-2.0.3/tools.h.orig vdr-2.0.3/tools.h
+--- vdr-2.0.3/tools.h.orig	2013-02-17 15:18:06.000000000 +0200
++++ vdr-2.0.3/tools.h	2013-10-14 23:11:42.966024160 +0300
+@@ -243,6 +243,7 @@ bool SpinUpDisk(const char *FileName);
+ void TouchFile(const char *FileName);
+ time_t LastModifiedTime(const char *FileName);
+ off_t FileSize(const char *FileName); ///< returns the size of the given file, or -1 in case of an error (e.g. if the file doesn't exist)
++const char *VdrVersion(void);
+ cString WeekDayName(int WeekDay);
+     ///< Converts the given WeekDay (0=Sunday, 1=Monday, ...) to a three letter
+     ///< day name.

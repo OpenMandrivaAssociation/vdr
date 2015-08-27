@@ -1,0 +1,678 @@
+diff -up vdr-2.0.6/MANUAL.orig vdr-2.0.6/MANUAL
+--- vdr-2.0.6/MANUAL.orig	2014-11-22 20:19:10.110274595 +0200
++++ vdr-2.0.6/MANUAL	2014-11-22 20:19:10.267272712 +0200
+@@ -719,6 +719,15 @@ Version 2.0
+                          menu. This is useful if you don't have the equipment to
+                          replay Dolby Digital audio.
+ 
++  Use automatic channel numbering = no
++                         Controls whether automatic channel numbering based on
++                         logical channel numbers of broadcasters is active. If
++                         a logical channel number is missing or it clashes with
++                         another one, the channel is moved to an offset area
++                         starting from a channel number 1024.
++                         Note that logical channel numbers are activated only for
++                         cable and terrestrial networks.
++
+   Update channels = 5    Controls the automatic channel update function. '0' means
+                          no update, '1' will only update channel names, '2' will
+                          only update PIDs, '3' will update channel names and PIDs,
+diff -up vdr-2.0.6/channels.c.orig vdr-2.0.6/channels.c
+--- vdr-2.0.6/channels.c.orig	2013-10-11 14:40:02.000000000 +0300
++++ vdr-2.0.6/channels.c	2014-11-22 20:19:10.267272712 +0200
+@@ -13,6 +13,7 @@
+ #include "epg.h"
+ #include "libsi/si.h"
+ #include "timers.h"
++#include "dvbdevice.h"
+ 
+ // IMPORTANT NOTE: in the 'sscanf()' calls there is a blank after the '%d'
+ // format characters in order to allow any number of blanks after a numeric
+@@ -875,17 +876,49 @@ void cChannels::ReNumber(void)
+   channelsHashSid.Clear();
+   maxNumber = 0;
+   int Number = 1;
+-  for (cChannel *channel = First(); channel; channel = Next(channel)) {
+-      if (channel->GroupSep()) {
+-         if (channel->Number() > Number)
+-            Number = channel->Number();
++  if (Setup.UseAutoChannelNumbering) {
++     cVector<int> FoundLcn(Count());
++     int Overflow = LCN_OVERFLOW_OFFSET;
++     for (cChannel *channel = First(); channel; channel = Next(channel)) {
++         if (!channel->GroupSep()) {
++            cDvbTransponderParameters dtp(channel->Parameters());
++            HashChannel(channel);
++            Number = dtp.Lcn();
++            if (Number > 0) {
++               bool Clash = false;
++               for (int i = 0; i < FoundLcn.Size(); ++i) {
++                   if (FoundLcn[i] == Number) {
++                      Number = Overflow++;
++                      Clash = true;
++                      break;
++                      }
++                   }
++               if (!Clash)
++                  FoundLcn.Append(Number);
++               if (Number > maxNumber)
++                  maxNumber = Number;
++               channel->SetNumber(Number);
++               }
++            else {
++               maxNumber = Overflow;
++               channel->SetNumber(Overflow++);
++               }
++            }
+          }
+-      else {
+-         HashChannel(channel);
+-         maxNumber = Number;
+-         channel->SetNumber(Number++);
++     }
++  else {
++     for (cChannel *channel = First(); channel; channel = Next(channel)) {
++         if (channel->GroupSep()) {
++            if (channel->Number() > Number)
++               Number = channel->Number();
++            }
++         else {
++            HashChannel(channel);
++            maxNumber = Number;
++            channel->SetNumber(Number++);
++            }
+          }
+-      }
++     }
+ }
+ 
+ cChannel *cChannels::GetByNumber(int Number, int SkipGap)
+diff -up vdr-2.0.6/channels.h.orig vdr-2.0.6/channels.h
+--- vdr-2.0.6/channels.h.orig	2014-11-22 20:19:10.208273419 +0200
++++ vdr-2.0.6/channels.h	2014-11-22 20:19:10.267272712 +0200
+@@ -47,6 +47,8 @@
+ #define CA_ENCRYPTED_MIN 0x0100
+ #define CA_ENCRYPTED_MAX 0xFFFF
+ 
++#define LCN_OVERFLOW_OFFSET 1024
++
+ struct tChannelID {
+ private:
+   int source;
+diff -up vdr-2.0.6/config.c.orig vdr-2.0.6/config.c
+--- vdr-2.0.6/config.c.orig	2014-11-22 20:19:10.095274775 +0200
++++ vdr-2.0.6/config.c	2014-11-22 20:19:10.268272699 +0200
+@@ -474,6 +474,7 @@ cSetup::cSetup(void)
+   InitialVolume = -1;
+   ChannelsWrap = 0;
+   ShowChannelNamesWithSource = 0;
++  UseAutoChannelNumbering = 0;
+   EmergencyExit = 1;
+ }
+ 
+@@ -679,6 +680,7 @@ bool cSetup::Parse(const char *Name, con
+   else if (!strcasecmp(Name, "DeviceBondings"))      DeviceBondings     = Value;
+   else if (!strcasecmp(Name, "ChannelsWrap"))        ChannelsWrap       = atoi(Value);
+   else if (!strcasecmp(Name, "ShowChannelNamesWithSource")) ShowChannelNamesWithSource = atoi(Value);
++  else if (!strcasecmp(Name, "UseAutoChannelNumbering")) UseAutoChannelNumbering = atoi(Value);
+   else if (!strcasecmp(Name, "EmergencyExit"))       EmergencyExit      = atoi(Value);
+   else if (!strcasecmp(Name, "LastReplayed"))        cReplayControl::SetRecording(Value);
+   else
+@@ -788,6 +790,7 @@ bool cSetup::Save(void)
+   Store("DeviceBondings",     DeviceBondings);
+   Store("ChannelsWrap",       ChannelsWrap);
+   Store("ShowChannelNamesWithSource", ShowChannelNamesWithSource);
++  Store("UseAutoChannelNumbering", UseAutoChannelNumbering);
+   Store("EmergencyExit",      EmergencyExit);
+   Store("LastReplayed",       cReplayControl::LastReplayed());
+ 
+diff -up vdr-2.0.6/config.h.orig vdr-2.0.6/config.h
+--- vdr-2.0.6/config.h.orig	2014-11-22 20:19:10.095274775 +0200
++++ vdr-2.0.6/config.h	2014-11-22 20:19:10.268272699 +0200
+@@ -335,6 +335,7 @@ public:
+   int InitialVolume;
+   int ChannelsWrap;
+   int ShowChannelNamesWithSource;
++  int UseAutoChannelNumbering;
+   int EmergencyExit;
+   int __EndData__;
+   cString InitialChannel;
+diff -up vdr-2.0.6/dvbdevice.c.orig vdr-2.0.6/dvbdevice.c
+--- vdr-2.0.6/dvbdevice.c.orig	2013-10-21 12:01:21.000000000 +0300
++++ vdr-2.0.6/dvbdevice.c	2014-11-22 20:19:10.268272699 +0200
+@@ -206,6 +206,7 @@ cDvbTransponderParameters::cDvbTranspond
+   hierarchy    = HIERARCHY_AUTO;
+   rollOff      = ROLLOFF_AUTO;
+   streamId     = 0;
++  lcn          = 0;
+   Parse(Parameters);
+ }
+ 
+@@ -221,6 +222,7 @@ cString cDvbTransponderParameters::ToStr
+   char *q = buffer;
+   *q = 0;
+   ST("  S *")  q += sprintf(q, "%c", polarization);
++  ST(" C T*")  q += PrintParameter(q, 'A', lcn);
+   ST("   T*")  q += PrintParameter(q, 'B', MapToUser(bandwidth, BandwidthValues));
+   ST(" CST*")  q += PrintParameter(q, 'C', MapToUser(coderateH, CoderateValues));
+   ST("   T*")  q += PrintParameter(q, 'D', MapToUser(coderateL, CoderateValues));
+@@ -255,6 +257,7 @@ bool cDvbTransponderParameters::Parse(co
+ {
+   while (s && *s) {
+         switch (toupper(*s)) {
++          case 'A': s = ParseParameter(s, lcn); break;
+           case 'B': s = ParseParameter(s, bandwidth, BandwidthValues); break;
+           case 'C': s = ParseParameter(s, coderateH, CoderateValues); break;
+           case 'D': s = ParseParameter(s, coderateL, CoderateValues); break;
+diff -up vdr-2.0.6/dvbdevice.h.orig vdr-2.0.6/dvbdevice.h
+--- vdr-2.0.6/dvbdevice.h.orig	2013-04-09 16:43:33.000000000 +0300
++++ vdr-2.0.6/dvbdevice.h	2014-11-22 20:19:10.268272699 +0200
+@@ -119,6 +119,7 @@ private:
+   int hierarchy;
+   int rollOff;
+   int streamId;
++  int lcn;
+   int PrintParameter(char *p, char Name, int Value) const;
+   const char *ParseParameter(const char *s, int &Value, const tDvbParameterMap *Map = NULL);
+ public:
+@@ -135,6 +136,7 @@ public:
+   int Hierarchy(void) const { return hierarchy; }
+   int RollOff(void) const { return rollOff; }
+   int StreamId(void) const { return streamId; }
++  int Lcn(void) const { return lcn; }
+   void SetPolarization(char Polarization) { polarization = Polarization; }
+   void SetInversion(int Inversion) { inversion = Inversion; }
+   void SetBandwidth(int Bandwidth) { bandwidth = Bandwidth; }
+@@ -147,6 +149,7 @@ public:
+   void SetHierarchy(int Hierarchy) { hierarchy = Hierarchy; }
+   void SetRollOff(int RollOff) { rollOff = RollOff; }
+   void SetStreamId(int StreamId) { streamId = StreamId; }
++  void SetLcn(int Lcn) { lcn = Lcn; }
+   cString ToString(char Type) const;
+   bool Parse(const char *s);
+   };
+diff -up vdr-2.0.6/menu.c.orig vdr-2.0.6/menu.c
+--- vdr-2.0.6/menu.c.orig	2014-11-22 20:19:10.111274583 +0200
++++ vdr-2.0.6/menu.c	2014-11-22 20:19:10.269272687 +0200
+@@ -2843,6 +2843,7 @@ void cMenuSetupDVB::Setup(void)
+      Add(new cMenuEditStraItem(tr("Setup.DVB$Video display format"), &data.VideoDisplayFormat, 3, videoDisplayFormatTexts));
+   Add(new cMenuEditBoolItem(tr("Setup.DVB$Use Dolby Digital"),     &data.UseDolbyDigital));
+   Add(new cMenuEditStraItem(tr("Setup.DVB$Update channels"),       &data.UpdateChannels, 6, updateChannelsTexts));
++  Add(new cMenuEditBoolItem(tr("Setup.DVB$Use automatic channel numbering"), &data.UseAutoChannelNumbering));
+   Add(new cMenuEditIntItem( tr("Setup.DVB$Audio languages"),       &numAudioLanguages, 0, I18nLanguages()->Size()));
+   for (int i = 0; i < numAudioLanguages; i++)
+       Add(new cMenuEditStraItem(tr("Setup.DVB$Audio language"),    &data.AudioLanguages[i], I18nLanguages()->Size(), &I18nLanguages()->At(0)));
+@@ -2866,6 +2867,7 @@ eOSState cMenuSetupDVB::ProcessKey(eKeys
+   int oldVideoDisplayFormat = ::Setup.VideoDisplayFormat;
+   bool oldVideoFormat = ::Setup.VideoFormat;
+   bool newVideoFormat = data.VideoFormat;
++  bool oldUseAutoChannelNumbering = ::Setup.UseAutoChannelNumbering;
+   bool oldDisplaySubtitles = ::Setup.DisplaySubtitles;
+   bool newDisplaySubtitles = data.DisplaySubtitles;
+   int oldnumAudioLanguages = numAudioLanguages;
+@@ -2933,6 +2935,8 @@ eOSState cMenuSetupDVB::ProcessKey(eKeys
+         cDevice::PrimaryDevice()->SetVideoFormat(::Setup.VideoFormat);
+      if (::Setup.DisplaySubtitles != oldDisplaySubtitles)
+         cDevice::PrimaryDevice()->EnsureSubtitleTrack();
++     if (::Setup.UseAutoChannelNumbering != oldUseAutoChannelNumbering)
++        Channels.ReNumber();
+      cDvbSubtitleConverter::SetupChanged();
+      }
+   return state;
+diff -up vdr-2.0.6/nit.c.orig vdr-2.0.6/nit.c
+--- vdr-2.0.6/nit.c.orig	2014-03-11 11:29:59.000000000 +0200
++++ vdr-2.0.6/nit.c	2014-11-22 20:19:10.269272687 +0200
+@@ -356,6 +356,46 @@ void cNitFilter::Process(u_short Pid, u_
+                    }
+                  }
+                  break;
++            case SI::LogicalChannelDescriptorTag: {
++                 SI::LogicalChannelDescriptor *lcd = (SI::LogicalChannelDescriptor *)d;
++                 SI::LogicalChannelDescriptor::LogicalChannel LogicalChannel;
++                 for (SI::Loop::Iterator it4; lcd->logicalChannelLoop.getNext(LogicalChannel, it4); ) {
++                     int lcn = LogicalChannel.getLogicalChannelNumber();
++                     int sid = LogicalChannel.getServiceId();
++                     bool visible = LogicalChannel.getVisibleServiceFlag();
++                     for (cChannel *Channel = Channels.First(); visible && Channel; Channel = Channels.Next(Channel)) {
++                         // only for easily localized sources as terrestrial and cable
++                         if ((Channel->IsTerr() || Channel->IsCable()) && !Channel->GroupSep() && Channel->Sid() == sid && Channel->Nid() == ts.getOriginalNetworkId() && Channel->Tid() == ts.getTransportStreamId()) {
++                            cDvbTransponderParameters dtp(Channel->Parameters());
++                            dtp.SetLcn(lcn);
++                            //printf("channel %s (%d) has lcn %d\n", *Channel->GetChannelID().ToString(), Channel->Number(), lcn);
++                            Channel->SetTransponderData(Channel->Source(), Channel->Frequency(), Channel->Srate(), dtp.ToString('T'));
++                            break;
++                            }
++                         }
++                     }
++                 }
++                 break;
++            case SI::HdSimulcastLogicalChannelDescriptorTag: {
++                 SI::HdSimulcastLogicalChannelDescriptor *lcd = (SI::HdSimulcastLogicalChannelDescriptor *)d;
++                 SI::HdSimulcastLogicalChannelDescriptor::HdSimulcastLogicalChannel HdSimulcastLogicalChannel;
++                 for (SI::Loop::Iterator it4; lcd->hdSimulcastLogicalChannelLoop.getNext(HdSimulcastLogicalChannel, it4); ) {
++                     int lcn = HdSimulcastLogicalChannel.getLogicalChannelNumber();
++                     int sid = HdSimulcastLogicalChannel.getServiceId();
++                     bool visible = HdSimulcastLogicalChannel.getVisibleServiceFlag();
++                     for (cChannel *Channel = Channels.First(); visible && Channel; Channel = Channels.Next(Channel)) {
++                         // only for easily localized sources as terrestrial and cable
++                         if ((Channel->IsTerr() || Channel->IsCable()) && !Channel->GroupSep() && Channel->Sid() == sid && Channel->Nid() == ts.getOriginalNetworkId() && Channel->Tid() == ts.getTransportStreamId()) {
++                            cDvbTransponderParameters dtp(Channel->Parameters());
++                            dtp.SetLcn(lcn);
++                            //printf("channel %s (%d) has lcn %d\n", *Channel->GetChannelID().ToString(), Channel->Number(), lcn);
++                            Channel->SetTransponderData(Channel->Source(), Channel->Frequency(), Channel->Srate(), dtp.ToString('T'));
++                            break;
++                            }
++                         }
++                     }
++                 }
++                 break;
+             default: ;
+             }
+           delete d;
+diff -up vdr-2.0.6/po/ar.po.orig vdr-2.0.6/po/ar.po
+--- vdr-2.0.6/po/ar.po.orig	2014-03-22 12:54:15.381957034 +0200
++++ vdr-2.0.6/po/ar.po	2014-11-22 20:19:10.269272687 +0200
+@@ -951,6 +951,9 @@ msgstr "Ø¯ÙˆÙ„Ø¨Ù‰ Ø±Ù‚Ù…Ù‰"
+ msgid "Setup.DVB$Update channels"
+ msgstr "ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚Ù†ÙˆØ§Øª"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Ù„ØºØ§Øª Ø§Ù„ØµÙˆØª"
+ 
+diff -up vdr-2.0.6/po/ca_ES.po.orig vdr-2.0.6/po/ca_ES.po
+--- vdr-2.0.6/po/ca_ES.po.orig	2014-03-22 12:54:14.869863344 +0200
++++ vdr-2.0.6/po/ca_ES.po	2014-11-22 20:19:10.269272687 +0200
+@@ -950,6 +950,9 @@ msgstr "Fer servir Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Actualitza canals"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Idiomes d'àudio"
+ 
+diff -up vdr-2.0.6/po/cs_CZ.po.orig vdr-2.0.6/po/cs_CZ.po
+--- vdr-2.0.6/po/cs_CZ.po.orig	2014-03-22 12:54:15.311944226 +0200
++++ vdr-2.0.6/po/cs_CZ.po	2014-11-22 20:19:10.270272675 +0200
+@@ -950,6 +950,9 @@ msgstr "PouÅ¾Ã­vat zvuk v Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Aktualizace kanÃ¡lÅ¯"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Jazyky zvuku"
+ 
+diff -up vdr-2.0.6/po/da_DK.po.orig vdr-2.0.6/po/da_DK.po
+--- vdr-2.0.6/po/da_DK.po.orig	2014-03-22 12:54:14.986884753 +0200
++++ vdr-2.0.6/po/da_DK.po	2014-11-22 20:19:10.270272675 +0200
+@@ -947,6 +947,9 @@ msgstr "Anvend Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Opdatér kanaler"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio sprog (ant.)"
+ 
+diff -up vdr-2.0.6/po/de_DE.po.orig vdr-2.0.6/po/de_DE.po
+--- vdr-2.0.6/po/de_DE.po.orig	2014-03-22 12:54:15.569991437 +0200
++++ vdr-2.0.6/po/de_DE.po	2014-11-22 20:19:10.270272675 +0200
+@@ -947,6 +947,9 @@ msgstr "Dolby-Digital-Ton benutzen"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Kanäle aktualisieren"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio-Sprachen"
+ 
+diff -up vdr-2.0.6/po/el_GR.po.orig vdr-2.0.6/po/el_GR.po
+--- vdr-2.0.6/po/el_GR.po.orig	2014-03-22 12:54:15.179920070 +0200
++++ vdr-2.0.6/po/el_GR.po	2014-11-22 20:19:10.270272675 +0200
+@@ -947,6 +947,9 @@ msgstr "×ñÞóç Þ÷ïõ Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "ÅíçìÝñùóç êáíáëéþí"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Ãëþóóåò Þ÷ïõ"
+ 
+diff -up vdr-2.0.6/po/es_ES.po.orig vdr-2.0.6/po/es_ES.po
+--- vdr-2.0.6/po/es_ES.po.orig	2014-03-22 12:54:15.051896648 +0200
++++ vdr-2.0.6/po/es_ES.po	2014-11-22 20:19:10.270272675 +0200
+@@ -948,6 +948,9 @@ msgstr "Usar Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Actualizar canales"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Idiomas de audio"
+ 
+diff -up vdr-2.0.6/po/et_EE.po.orig vdr-2.0.6/po/et_EE.po
+--- vdr-2.0.6/po/et_EE.po.orig	2014-03-22 12:54:14.840858037 +0200
++++ vdr-2.0.6/po/et_EE.po	2014-11-22 20:19:10.270272675 +0200
+@@ -947,6 +947,9 @@ msgstr "Dolby Digital kasutamine"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Kanalite uuendamine"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio keeli"
+ 
+diff -up vdr-2.0.6/po/fi_FI.po.orig vdr-2.0.6/po/fi_FI.po
+--- vdr-2.0.6/po/fi_FI.po.orig	2014-03-22 12:54:15.019890792 +0200
++++ vdr-2.0.6/po/fi_FI.po	2014-11-22 20:19:10.271272664 +0200
+@@ -951,6 +951,9 @@ msgstr "KÃ¤ytÃ¤ Dolby Digital -Ã¤Ã¤ntÃ¤"
+ msgid "Setup.DVB$Update channels"
+ msgstr "PÃ¤ivitÃ¤ kanavat"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr "KÃ¤ytÃ¤ automaattista kanavanumerointia"
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Ã„Ã¤nen kielet"
+ 
+diff -up vdr-2.0.6/po/fr_FR.po.orig vdr-2.0.6/po/fr_FR.po
+--- vdr-2.0.6/po/fr_FR.po.orig	2014-03-22 12:54:15.277938002 +0200
++++ vdr-2.0.6/po/fr_FR.po	2014-11-22 20:19:10.271272664 +0200
+@@ -957,6 +957,9 @@ msgstr "Utiliser le Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Mettre Ã  jour les chaÃ®nes"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Langues audio"
+ 
+diff -up vdr-2.0.6/po/hr_HR.po.orig vdr-2.0.6/po/hr_HR.po
+--- vdr-2.0.6/po/hr_HR.po.orig	2014-03-22 12:54:15.471973504 +0200
++++ vdr-2.0.6/po/hr_HR.po	2014-11-22 20:19:10.271272664 +0200
+@@ -949,6 +949,9 @@ msgstr "Koristi Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Aktualiziraj programe"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio jezici"
+ 
+diff -up vdr-2.0.6/po/hu_HU.po.orig vdr-2.0.6/po/hu_HU.po
+--- vdr-2.0.6/po/hu_HU.po.orig	2014-03-22 12:54:14.959879812 +0200
++++ vdr-2.0.6/po/hu_HU.po	2014-11-22 20:19:10.271272664 +0200
+@@ -951,6 +951,9 @@ msgstr "Dolby-Digital hangot hasznÃ¡lni"
+ msgid "Setup.DVB$Update channels"
+ msgstr "AdÃ³k aktualizÃ¡lÃ¡sa"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "HangsÃ¡v nyelvek"
+ 
+diff -up vdr-2.0.6/po/it_IT.po.orig vdr-2.0.6/po/it_IT.po
+--- vdr-2.0.6/po/it_IT.po.orig	2014-03-22 12:54:15.118908906 +0200
++++ vdr-2.0.6/po/it_IT.po	2014-11-22 20:19:10.271272664 +0200
+@@ -954,6 +954,9 @@ msgstr "Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Aggiornamento canali"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Lingue audio"
+ 
+diff -up vdr-2.0.6/po/lt_LT.po.orig vdr-2.0.6/po/lt_LT.po
+--- vdr-2.0.6/po/lt_LT.po.orig	2014-03-22 12:54:15.209925561 +0200
++++ vdr-2.0.6/po/lt_LT.po	2014-11-22 20:19:10.272272651 +0200
+@@ -947,6 +947,9 @@ msgstr "Ä®jungti Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Atnaujinti kanalus"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Garso takeliai"
+ 
+diff -up vdr-2.0.6/po/mk_MK.po.orig vdr-2.0.6/po/mk_MK.po
+--- vdr-2.0.6/po/mk_MK.po.orig	2014-03-22 12:54:15.346950629 +0200
++++ vdr-2.0.6/po/mk_MK.po	2014-11-22 20:19:10.272272651 +0200
+@@ -948,6 +948,9 @@ msgstr "ÐšÐ¾Ñ€Ð¸ÑÑ‚Ð¸ Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "ÐÐ¶ÑƒÑ€Ð¸Ñ€Ð°Ñ˜ ÐºÐ°Ð½Ð°Ð»Ð¸"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "ÐÑƒÐ´Ð¸Ð¾ Ñ˜Ð°Ð·Ð¸Ñ†Ð¸"
+ 
+diff -up vdr-2.0.6/po/nl_NL.po.orig vdr-2.0.6/po/nl_NL.po
+--- vdr-2.0.6/po/nl_NL.po.orig	2014-03-22 12:54:15.147914214 +0200
++++ vdr-2.0.6/po/nl_NL.po	2014-11-22 20:19:10.272272651 +0200
+@@ -952,6 +952,9 @@ msgstr "Dolby Digital gebruiken"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Kanalen actualiseren"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio talen"
+ 
+diff -up vdr-2.0.6/po/nn_NO.po.orig vdr-2.0.6/po/nn_NO.po
+--- vdr-2.0.6/po/nn_NO.po.orig	2014-03-22 12:54:15.441968014 +0200
++++ vdr-2.0.6/po/nn_NO.po	2014-11-22 20:19:10.272272651 +0200
+@@ -948,6 +948,9 @@ msgstr ""
+ msgid "Setup.DVB$Update channels"
+ msgstr ""
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr ""
+ 
+diff -up vdr-2.0.6/po/pl_PL.po.orig vdr-2.0.6/po/pl_PL.po
+--- vdr-2.0.6/po/pl_PL.po.orig	2014-03-22 12:54:14.751841750 +0200
++++ vdr-2.0.6/po/pl_PL.po	2014-11-22 20:19:10.272272651 +0200
+@@ -949,6 +949,9 @@ msgstr "U¿ywaj Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Aktualizuj kana³y"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Jêzyków d¼wiêku"
+ 
+diff -up vdr-2.0.6/po/pt_PT.po.orig vdr-2.0.6/po/pt_PT.po
+--- vdr-2.0.6/po/pt_PT.po.orig	2014-03-22 12:54:14.684829490 +0200
++++ vdr-2.0.6/po/pt_PT.po	2014-11-22 20:19:10.272272651 +0200
+@@ -948,6 +948,9 @@ msgstr "Usar Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Actualizar canais"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Idiomas do áudio"
+ 
+diff -up vdr-2.0.6/po/ro_RO.po.orig vdr-2.0.6/po/ro_RO.po
+--- vdr-2.0.6/po/ro_RO.po.orig	2014-03-22 12:54:14.811852730 +0200
++++ vdr-2.0.6/po/ro_RO.po	2014-11-22 20:19:10.273272639 +0200
+@@ -949,6 +949,9 @@ msgstr "Sunet Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Actualizare canale"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Limbi sunet"
+ 
+diff -up vdr-2.0.6/po/ru_RU.po.orig vdr-2.0.6/po/ru_RU.po
+--- vdr-2.0.6/po/ru_RU.po.orig	2014-03-22 12:54:15.500978811 +0200
++++ vdr-2.0.6/po/ru_RU.po	2014-11-22 20:19:10.273272639 +0200
+@@ -948,6 +948,9 @@ msgstr "²ÚÛîçØâì Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "¾ÑÝÞÒÛïâì ÝÐáâàÞÙÚØ ÚÐÝÐÛÞÒ"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "¿àÕÔßÞçØâÐÕÜëÕ ï×ëÚØ (×ÒãÚ)"
+ 
+diff -up vdr-2.0.6/po/sk_SK.po.orig vdr-2.0.6/po/sk_SK.po
+--- vdr-2.0.6/po/sk_SK.po.orig	2014-03-22 12:54:15.411962524 +0200
++++ vdr-2.0.6/po/sk_SK.po	2014-11-22 20:19:10.273272639 +0200
+@@ -947,6 +947,9 @@ msgstr "Pou¾íva» zvuk v Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Aktualizácia kanálov"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Jazyky zvuku"
+ 
+diff -up vdr-2.0.6/po/sl_SI.po.orig vdr-2.0.6/po/sl_SI.po
+--- vdr-2.0.6/po/sl_SI.po.orig	2014-03-22 12:54:15.542986494 +0200
++++ vdr-2.0.6/po/sl_SI.po	2014-11-22 20:19:10.273272639 +0200
+@@ -948,6 +948,9 @@ msgstr "Uporabljaj Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Posodobi kanale"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Jeziki za zvok"
+ 
+diff -up vdr-2.0.6/po/sr_RS.po.orig vdr-2.0.6/po/sr_RS.po
+--- vdr-2.0.6/po/sr_RS.po.orig	2014-03-22 12:54:14.783847606 +0200
++++ vdr-2.0.6/po/sr_RS.po	2014-11-22 20:19:10.273272639 +0200
+@@ -948,6 +948,9 @@ msgstr "Koristi Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "A¾uriranje kanala"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio jezici"
+ 
+diff -up vdr-2.0.6/po/sv_SE.po.orig vdr-2.0.6/po/sv_SE.po
+--- vdr-2.0.6/po/sv_SE.po.orig	2014-03-22 12:54:15.246932331 +0200
++++ vdr-2.0.6/po/sv_SE.po	2014-11-22 20:19:10.274272627 +0200
+@@ -951,6 +951,9 @@ msgstr "Använd Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Uppdatera kanaler"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Antal ljudspråk"
+ 
+diff -up vdr-2.0.6/po/tr_TR.po.orig vdr-2.0.6/po/tr_TR.po
+--- vdr-2.0.6/po/tr_TR.po.orig	2014-03-22 12:54:14.928874139 +0200
++++ vdr-2.0.6/po/tr_TR.po	2014-11-22 20:19:10.274272627 +0200
+@@ -947,6 +947,9 @@ msgstr "Dolby Dijital ses kullan"
+ msgid "Setup.DVB$Update channels"
+ msgstr "Kanallarý yenile"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Audio dilleri"
+ 
+diff -up vdr-2.0.6/po/uk_UA.po.orig vdr-2.0.6/po/uk_UA.po
+--- vdr-2.0.6/po/uk_UA.po.orig	2014-03-22 12:54:15.081902138 +0200
++++ vdr-2.0.6/po/uk_UA.po	2014-11-22 20:19:10.274272627 +0200
+@@ -948,6 +948,9 @@ msgstr "Ð’Ð¸ÐºÐ¾Ñ€. Dolby Digital"
+ msgid "Setup.DVB$Update channels"
+ msgstr "ÐžÐ½Ð¾Ð²Ð»ÑŽÐ²Ð°Ñ‚Ð¸ ÐºÐ°Ð½Ð°Ð»Ð¸"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "Ð‘Ð°Ð¶Ð°Ð½Ñ– Ð¼Ð¾Ð²Ð¸ (Ð·Ð²ÑƒÐº)"
+ 
+diff -up vdr-2.0.6/po/zh_CN.po.orig vdr-2.0.6/po/zh_CN.po
+--- vdr-2.0.6/po/zh_CN.po.orig	2014-03-22 12:54:14.899868834 +0200
++++ vdr-2.0.6/po/zh_CN.po	2014-11-22 20:19:10.274272627 +0200
+@@ -949,6 +949,9 @@ msgstr "æœæ¯”-æ•°ç -ä½¿ç”¨"
+ msgid "Setup.DVB$Update channels"
+ msgstr "æ›´æ–°é¢‘é“"
+ 
++msgid "Setup.DVB$Use automatic channel numbering"
++msgstr ""
++
+ msgid "Setup.DVB$Audio languages"
+ msgstr "å£°é“è¯­è¨€"
+ 
+diff -up vdr-2.0.6/vdr.5.orig vdr-2.0.6/vdr.5
+--- vdr-2.0.6/vdr.5.orig	2013-03-29 12:25:56.000000000 +0200
++++ vdr-2.0.6/vdr.5	2014-11-22 20:19:10.274272627 +0200
+@@ -91,6 +91,7 @@ meaning (and allowed values) are
+ .TS
+ tab (@);
+ l l.
++\fBA\fR@logical channel Number (0-1023)
+ \fBB\fR@Bandwidth (1712, 5, 6, 7, 8, 10)
+ \fBC\fR@Code rate high priority (0, 12, 23, 34, 35, 45, 56, 67, 78, 89, 910)
+ \fBD\fR@coDe rate low priority (0, 12, 23, 34, 35, 45, 56, 67, 78, 89, 910)
+@@ -108,6 +109,8 @@ l l.
+ \fBY\fR@hierarchY (0, 1, 2, 4)
+ .TE
+ 
++\fBLogical channel number:\fR If no logical channel number is used, set to 0 (DVB-C/DVB-T/DVB-T2 only).
++
+ \fBBandwidth:\fR The bandwidth of the channel in MHz (1712 in kHz): (DVB-T/DVB-T2 only).
+ 
+ \fBCode rate high priority:\fR Forward Error Correction (FEC) of the high priority stream (DVB-T/DVB-T2).
+diff -up vdr-2.0.6/vdr.c.orig vdr-2.0.6/vdr.c
+--- vdr-2.0.6/vdr.c.orig	2014-01-26 14:45:00.000000000 +0200
++++ vdr-2.0.6/vdr.c	2014-11-22 20:19:10.275272616 +0200
+@@ -906,7 +906,10 @@ int main(int argc, char *argv[])
+                  Timers.Save();
+                  ChannelSaveTimeout = 0;
+                  }
++              bool renumber = false;
+               for (cChannel *Channel = Channels.First(); Channel; Channel = Channels.Next(Channel)) {
++                  if (Channel->Modification(CHANNELMOD_TRANSP))
++                     renumber = true;
+                   if (Channel->Modification(CHANNELMOD_RETUNE)) {
+                      cRecordControls::ChannelDataModified(Channel);
+                      if (Channel->Number() == cDevice::CurrentChannel() && cDevice::PrimaryDevice()->HasDecoder()) {
+@@ -919,6 +922,8 @@ int main(int argc, char *argv[])
+                         }
+                      }
+                   }
++              if (renumber)
++                 Channels.ReNumber();
+               Channels.Unlock();
+               }
+            }

@@ -5,7 +5,7 @@
 # If VDR exits abnormally, the driver will be reloaded if
 # configured so and VDR restarted.
 #
-# Maintainer: Anssi Hannula <anssi@mandriva.org>
+# Maintainer: Anssi Hannula
 #
 # Some parts originate from SuSE Linux runvdr, which is:
 # original by Klaus Schmidinger
@@ -18,7 +18,10 @@ if [[ "$1" == "--background" ]]; then
 	exit 0
 fi
 
-VDR_INSTANCE="${0##*/run}"
+if [ -z "$VDR_INSTANCE" ]; then
+	VDR_INSTANCE="${0##*/run}"
+fi
+
 echo "Started runvdr for $VDR_INSTANCE"
 
 # default values, see /etc/sysconfig/vdr
@@ -27,10 +30,9 @@ VDR_PLUGINS="any"
 VDR_DVBMODULES=""
 VDR_CONFIGDIR="/var/lib/vdr/config"
 VDR_LOGLEVEL=3
-VDR_SVDRP_PORT=2001
+VDR_SVDRP_PORT=
 VDR_WATCHDOG=
 VDR_LIRC=no
-VDR_RCU=""
 VDR_TERMINAL=""
 VDR_MUTE=no
 VDR_CARDS=""
@@ -69,10 +71,13 @@ getargs()
 		eval echo \"\$VDR_PLUGIN_ARGS_${p//-/_}\"
 	else
 		if [ -e "/usr/share/vdr/defaults/$p.defaults" ]; then
+			VDR_PLUGIN_ARGS=	
 			. /usr/share/vdr/defaults/$p.defaults
 			[ -e "/etc/sysconfig/vdr-$p" ] && . /etc/sysconfig/vdr-$p
 			if eval [ -n \"\$VDR_PLUGIN_ARGS_${p//-/_}\" ]; then
 				eval echo \"\$VDR_PLUGIN_ARGS_${p//-/_}\"
+			elif [ -n "$VDR_PLUGIN_ARGS" ]; then
+			    	echo "$VDR_PLUGIN_ARGS"
 			else
 				. /usr/share/vdr/defaults/$p.params
 			fi
@@ -88,7 +93,6 @@ makeargs()
     [ -n "$VDR_WATCHDOG" ] && echo "-w" "\"$VDR_WATCHDOG\""
     [ -n "$VDR_RECORD_SCRIPT" ] && echo "-r" "\"$VDR_RECORD_SCRIPT\""
     [ -n "$VDR_SHUTDOWN_SCRIPT" ] && echo "-s" "\"$VDR_SHUTDOWN_SCRIPT\""
-    [ -n "$VDR_RCU" ] && echo "--rcu=\"$VDR_RCU\""
     [ -n "$VDR_TERMINAL" ] && echo "-t" "\"$VDR_TERMINAL\"" || echo "--no-kbd"
     [ -n "$VDR_VIDEO" ] && echo "-v" "\"$VDR_VIDEO\""
     [ -n "$VDR_USER" ] && echo "-u" "\"$VDR_USER\""

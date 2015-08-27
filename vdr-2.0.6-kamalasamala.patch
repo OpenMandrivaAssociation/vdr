@@ -1,0 +1,227 @@
+diff -Nru vdr-2.0.6-vanilla/dvbplayer.c vdr-2.0.6-kamalasalama/dvbplayer.c
+--- vdr-2.0.6-vanilla/dvbplayer.c	2014-03-22 20:11:20.784000000 +0200
++++ vdr-2.0.6-kamalasalama/dvbplayer.c	2014-03-22 20:12:12.000000000 +0200
+@@ -374,11 +374,16 @@
+   if (index) {
+      int Index = ptsIndex.FindIndex(DeviceGetSTC());
+      if (Index >= 0) {
+-        Index -= int(round(RESUMEBACKUP * framesPerSecond));
+-        if (Index > 0)
+-           Index = index->GetNextIFrame(Index, false);
+-        else
+-           Index = 0;
++        int backup = int(round(RESUMEBACKUP * framesPerSecond));
++        if (Index >= index->Last() - backup)
++           Index = index->GetNextIFrame(0, true);
++        else {
++           Index -= backup;
++           if (Index > 0)
++              Index = index->GetNextIFrame(Index, false);
++           else
++              Index = 0;
++           }
+         if (Index >= 0)
+            return index->StoreResume(Index);
+         }
+diff -Nru vdr-2.0.6-vanilla/MANUAL vdr-2.0.6-kamalasalama/MANUAL
+--- vdr-2.0.6-vanilla/MANUAL	2014-03-22 20:11:20.796000000 +0200
++++ vdr-2.0.6-kamalasalama/MANUAL	2014-03-22 20:12:12.000000000 +0200
+@@ -48,7 +48,7 @@
+   FastRew     fast rewind
+ 
+   Next        Next/previous channel group (in live tv mode)
+-  Prev        or next/previous editing mark (in replay mode)
++  Prev        or binary skipping (in replay mode)
+ 
+   Channel+    channel up
+   Channel-    channel down
+diff -Nru vdr-2.0.6-vanilla/menu.c vdr-2.0.6-kamalasalama/menu.c
+--- vdr-2.0.6-vanilla/menu.c	2014-03-22 20:11:20.780000000 +0200
++++ vdr-2.0.6-kamalasalama/menu.c	2014-03-22 20:12:12.004000000 +0200
+@@ -4500,6 +4500,10 @@
+ 
+ // --- cReplayControl --------------------------------------------------------
+ 
++#define REPLAYCONTROLSKIPLIMIT   9    // s
++#define REPLAYCONTROLSKIPSECONDS 90   // s
++#define REPLAYCONTROLSKIPTIMEOUT 5000 // ms
++
+ cReplayControl *cReplayControl::currentReplayControl = NULL;
+ cString cReplayControl::fileName;
+ 
+@@ -4514,6 +4518,9 @@
+   lastCurrent = lastTotal = -1;
+   lastPlay = lastForward = false;
+   lastSpeed = -2; // an invalid value
++  lastSkipKey = kNone;
++  lastSkipSeconds = REPLAYCONTROLSKIPSECONDS;
++  lastSkipTimeout.Set(0);
+   timeoutShow = 0;
+   timeSearchActive = false;
+   cRecording Recording(fileName);
+@@ -4948,6 +4955,32 @@
+     case kGreen:   SkipSeconds(-60); break;
+     case kYellow|k_Repeat:
+     case kYellow:  SkipSeconds( 60); break;
++    case k1|k_Repeat:
++    case k1:       SkipSeconds(-20); break;
++    case k3|k_Repeat:
++    case k3:       SkipSeconds( 20); break;
++    case kPrev|k_Repeat:
++    case kPrev:    if (lastSkipTimeout.TimedOut()) {
++                      lastSkipSeconds = REPLAYCONTROLSKIPSECONDS;
++                      lastSkipKey = kPrev;
++                   }
++                   else if (RAWKEY(lastSkipKey) != kPrev && lastSkipSeconds > (2 * REPLAYCONTROLSKIPLIMIT)) {
++                      lastSkipSeconds /= 2;
++                      lastSkipKey = kNone;
++                   }
++                   lastSkipTimeout.Set(REPLAYCONTROLSKIPTIMEOUT);
++                   SkipSeconds(-lastSkipSeconds); break;
++    case kNext|k_Repeat:
++    case kNext:    if (lastSkipTimeout.TimedOut()) {
++                      lastSkipSeconds = REPLAYCONTROLSKIPSECONDS;
++                      lastSkipKey = kNext;	
++                   }
++                   else if (RAWKEY(lastSkipKey) != kNext && lastSkipSeconds > (2 * REPLAYCONTROLSKIPLIMIT)) {
++                      lastSkipSeconds /= 2;
++                      lastSkipKey = kNone;
++                   }
++                   lastSkipTimeout.Set(REPLAYCONTROLSKIPTIMEOUT);
++                   SkipSeconds(lastSkipSeconds); break;
+     case kStop:
+     case kBlue:    Hide();
+                    Stop();
+@@ -4957,12 +4990,8 @@
+       switch (int(Key)) {
+         // Editing:
+         case kMarkToggle:      MarkToggle(); break;
+-        case kPrev|k_Repeat:
+-        case kPrev:
+         case kMarkJumpBack|k_Repeat:
+         case kMarkJumpBack:    MarkJump(false); break;
+-        case kNext|k_Repeat:
+-        case kNext:
+         case kMarkJumpForward|k_Repeat:
+         case kMarkJumpForward: MarkJump(true); break;
+         case kMarkMoveBack|k_Repeat:
+diff -Nru vdr-2.0.6-vanilla/menu.h vdr-2.0.6-kamalasalama/menu.h
+--- vdr-2.0.6-vanilla/menu.h	2014-03-22 20:11:20.784000000 +0200
++++ vdr-2.0.6-kamalasalama/menu.h	2014-03-22 20:12:12.004000000 +0200
+@@ -264,6 +264,9 @@
+   int lastCurrent, lastTotal;
+   bool lastPlay, lastForward;
+   int lastSpeed;
++  int lastSkipSeconds;
++  eKeys lastSkipKey;
++  cTimeMs lastSkipTimeout;
+   time_t timeoutShow;
+   bool timeSearchActive, timeSearchHide;
+   int timeSearchTime, timeSearchPos;
+diff -Nru vdr-2.0.6-vanilla/osdbase.c vdr-2.0.6-kamalasalama/osdbase.c
+--- vdr-2.0.6-vanilla/osdbase.c	2014-03-22 20:11:20.784000000 +0200
++++ vdr-2.0.6-kamalasalama/osdbase.c	2014-03-22 20:12:12.004000000 +0200
+@@ -82,6 +82,7 @@
+ {
+   isMenu = true;
+   digit = 0;
++  key_nr = -1;
+   hasHotkeys = false;
+   displayMenuItems = 0;
+   title = NULL;
+@@ -131,7 +132,7 @@
+         digit = -1; // prevents automatic hotkeys - input already has them
+      if (digit >= 0) {
+         digit++;
+-        buffer = cString::sprintf(" %c %s", (digit < 10) ? '0' + digit : ' ' , s);
++        buffer = cString::sprintf(" %2d%s %s", digit, (digit > 9) ? "" : " ", s);
+         s = buffer;
+         }
+      }
+@@ -477,20 +478,60 @@
+      }
+ }
+ 
++#define MENUKEY_TIMEOUT 1500
++
+ eOSState cOsdMenu::HotKey(eKeys Key)
+ {
+-  for (cOsdItem *item = First(); item; item = Next(item)) {
++  bool match = false;
++  bool highlight = false;
++  int  item_nr;
++  int  i;
++
++  if (Key == kNone) {
++     if (lastActivity.TimedOut())
++        Key = kOk;
++     else
++        return osContinue;
++     }
++  else
++     lastActivity.Set(MENUKEY_TIMEOUT);
++  for (cOsdItem *item = Last(); item; item = Prev(item)) {
+       const char *s = item->Text();
+-      if (s && (s = skipspace(s)) != NULL) {
+-         if (*s == Key - k1 + '1') {
++      i = 0;
++      item_nr = 0;
++      if (s && (s = skipspace(s)) != '\0' && '0' <= s[i] && s[i] <= '9') {
++         do {
++            item_nr = item_nr * 10 + (s[i] - '0');
++            }
++         while ( !((s[++i] == '\t')||(s[i] == ' ')) && (s[i] != '\0') && ('0' <= s[i]) && (s[i] <= '9'));
++         if ((Key == kOk) && (item_nr == key_nr)) {
+             current = item->Index();
+             RefreshCurrent();
+             Display();
+             cRemote::Put(kOk, true);
++            key_nr = -1;
+             break;
+             }
++         else if (Key != kOk) {
++            if (!highlight && (item_nr == (Key - k0))) {
++               highlight = true;
++               current = item->Index();
++               }
++            if (!match && (key_nr == -1) && ((item_nr / 10) == (Key - k0))) {
++               match = true;
++               key_nr = (Key - k0);
++               }
++            else if (((key_nr == -1) && (item_nr == (Key - k0))) || (!match && (key_nr >= 0) && (item_nr == (10 * key_nr + Key - k0)))) {
++               current = item->Index();
++               cRemote::Put(kOk, true);
++               key_nr = -1;
++               break;
++               }
++            }
+          }
+       }
++  if ((!match) && (Key != kNone))
++     key_nr = -1;
+   return osContinue;
+ }
+ 
+@@ -529,8 +570,8 @@
+         }
+      }
+   switch (int(Key)) {
+-    case k0:      return osUnknown;
+-    case k1...k9: return hasHotkeys ? HotKey(Key) : osUnknown;
++    case kNone:
++    case k0...k9: return hasHotkeys ? HotKey(Key) : osUnknown;
+     case kUp|k_Repeat:
+     case kUp:   CursorUp();   break;
+     case kDown|k_Repeat:
+diff -Nru vdr-2.0.6-vanilla/osdbase.h vdr-2.0.6-kamalasalama/osdbase.h
+--- vdr-2.0.6-vanilla/osdbase.h	2014-03-22 20:11:20.784000000 +0200
++++ vdr-2.0.6-kamalasalama/osdbase.h	2014-03-22 20:12:12.004000000 +0200
+@@ -98,6 +98,8 @@
+   char *status;
+   int digit;
+   bool hasHotkeys;
++  int key_nr;
++  cTimeMs lastActivity;
+   void DisplayHelp(bool Force = false);
+ protected:
+   void SetDisplayMenu(void);

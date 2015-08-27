@@ -1,16 +1,15 @@
-Index: vdr-1.6.0/dvbsubtitle.c
-===================================================================
---- vdr-1.6.0/dvbsubtitle.c
-+++ vdr-1.6.0/dvbsubtitle.c	2008-04-25 14:04:32.000000000 +0300
-@@ -985,6 +985,7 @@
+diff -Nurpa -x '*~' -x '*.orig' -x '*.rej' -x '*.swp' vdr-2.0.3/dvbsubtitle.c vdr-2.0.3/dvbsubtitle.c
+--- vdr-2.0.3/dvbsubtitle.c	2013-02-22 17:25:25.000000000 +0200
++++ vdr-2.0.3/dvbsubtitle.c	2013-10-14 23:30:34.631714085 +0300
+@@ -1266,6 +1266,7 @@ void cDvbSubtitleConverter::FinishPage(c
    int NumAreas = Page->regions.Count();
    int Bpp = 8;
    bool Reduced = false;
 +  if (osd->CanHandleOver2BitSubtitles()) {
-   while (osd->CanHandleAreas(Areas, NumAreas) != oeOk) {
+   while (osd && osd->CanHandleAreas(Areas, NumAreas) != oeOk) {
          int HalfBpp = Bpp / 2;
          if (HalfBpp >= 2) {
-@@ -999,6 +1000,14 @@
+@@ -1280,6 +1281,14 @@ void cDvbSubtitleConverter::FinishPage(c
          else
             return; // unable to draw bitmaps
          }
@@ -22,18 +21,17 @@ Index: vdr-1.6.0/dvbsubtitle.c
 +         }
 +    }
 +  }
-   if (Reduced) {
-      for (int i = 0; i < NumAreas; i++) {
-          cSubtitleRegion *sr = Page->regions.Get(i);
-Index: vdr-1.6.0/osd.h
-===================================================================
---- vdr-1.6.0/osd.h
-+++ vdr-1.6.0/osd.h	2008-04-25 14:01:09.000000000 +0300
-@@ -401,6 +401,7 @@
+   cDvbSubtitleBitmaps *Bitmaps = new cDvbSubtitleBitmaps(Page->Pts(), Page->Timeout(), Areas, NumAreas, osdFactorX, osdFactorY);
+   bitmaps->Add(Bitmaps);
+   for (int i = 0; i < NumAreas; i++) {
+diff -Nurpa -x '*~' -x '*.orig' -x '*.rej' -x '*.swp' vdr-2.0.3/osd.h vdr-2.0.3/osd.h
+--- vdr-2.0.3/osd.h	2013-10-14 23:26:40.211674407 +0300
++++ vdr-2.0.3/osd.h	2013-10-14 23:27:20.687199359 +0300
+@@ -914,6 +914,7 @@ public:
         ///< 7: vertical,   falling, upper
    virtual void Flush(void);
         ///< Actually commits all data to the OSD hardware.
 +  virtual bool CanHandleOver2BitSubtitles(void) { return true; }
-   tArea vidWin;
-   };
- 
+        ///< Flush() should return as soon as possible.
+        ///< For a true color OSD using the default implementation with in memory
+        ///< pixmaps, the Flush() function should basically do something like this:

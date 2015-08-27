@@ -1,2 +1,4 @@
+removed_sources:
+  vdr-1.6.0.tar.bz2: 203a03ce4a39e8c70e0a64d7d94b7f5f17f03e7d
 sources:
-  "vdr-1.6.0.tar.bz2": 203a03ce4a39e8c70e0a64d7d94b7f5f17f03e7d
+  vdr-2.0.7.tar.bz2: edb1aa9b72f954fe704e8b7504c29a61e3390dc8

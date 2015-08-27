@@ -27,6 +27,6 @@ END {
 	for (plugin in removals)
 		command=command " --remove " plugin
 
-	system("/etc/rc.d/init.d/vdr plugins_changed" command)
+	system("/usr/share/vdr/plugin-update.sh plugins_changed" command)
 }
 

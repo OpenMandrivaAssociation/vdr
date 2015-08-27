@@ -1,0 +1,8 @@
+.include /lib/systemd/system/vdr.service
+# See /usr/share/doc/vdr/README.*.multi-vdr.
+
+[Unit]
+Description=Video Disk Recorder instance 2
+
+[Service]
+Environment=VDR_INSTANCE=vdr2

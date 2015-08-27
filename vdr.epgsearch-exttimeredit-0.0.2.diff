@@ -1,24 +1,24 @@
-diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
---- vdr-1.6.0/menu.c.orig	2009-07-25 21:31:59.330093322 +0300
-+++ vdr-1.6.0/menu.c	2009-07-25 21:34:31.880092871 +0300
-@@ -854,6 +854,7 @@ class cMenuTimerItem : public cOsdItem {
+diff -Nurpa -x '*~' -x '*.orig' -x '*.rej' -x '*.swp' vdr-1.7.23/menu.c vdr-1.7.23/menu.c
+--- vdr-1.7.23/menu.c	2012-02-17 23:50:25.919551591 +0200
++++ vdr-1.7.23/menu.c	2012-02-17 23:53:20.401057637 +0200
+@@ -1020,6 +1020,7 @@ eOSState cMenuEditTimer::ProcessKey(eKey
+ class cMenuTimerItem : public cOsdItem {
  private:
    cTimer *timer;
-   char diskStatus;
 +  void DoSet(void);
  public:
    cMenuTimerItem(cTimer *Timer);
-   void SetDiskStatus(char DiskStatus);
-@@ -866,7 +867,7 @@ cMenuTimerItem::cMenuTimerItem(cTimer *T
+   virtual int Compare(const cListObject &ListObject) const;
+@@ -1030,7 +1031,7 @@ public:
+ cMenuTimerItem::cMenuTimerItem(cTimer *Timer)
  {
    timer = Timer;
-   diskStatus = ' ';
 -  Set();
 +  DoSet();
  }
  
  int cMenuTimerItem::Compare(const cListObject &ListObject) const
-@@ -876,6 +877,18 @@ int cMenuTimerItem::Compare(const cListO
+@@ -1040,6 +1041,18 @@ int cMenuTimerItem::Compare(const cListO
  
  void cMenuTimerItem::Set(void)
  {
@@ -37,7 +37,7 @@ diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
    cString day, name("");
    if (timer->WeekDays())
       day = timer->PrintDay(0, timer->WeekDays(), false);
-@@ -963,8 +976,7 @@ void cTimerEntry::SetDiskStatus(char Dis
+@@ -1078,8 +1091,7 @@ void cMenuTimerItem::Set(void)
  class cMenuTimers : public cOsdMenu {
  private:
    int helpKeys;
@@ -47,7 +47,7 @@ diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
    eOSState Delete(void);
    eOSState OnOff(void);
    eOSState Info(void);
-@@ -1041,19 +1053,30 @@ eOSState cMenuTimers::OnOff(void)
+@@ -1151,19 +1163,30 @@ eOSState cMenuTimers::OnOff(void)
    return osContinue;
  }
  
@@ -88,17 +88,17 @@ diff -p -up vdr-1.6.0/menu.c.orig vdr-1.6.0/menu.c
  }
  
  eOSState cMenuTimers::Delete(void)
-@@ -1161,7 +1184,7 @@ eOSState cMenuTimers::ProcessKey(eKeys K
+@@ -1209,7 +1232,7 @@ eOSState cMenuTimers::ProcessKey(eKeys K
+      switch (Key) {
         case kOk:     return Edit();
-        case kRed:    actualiseDiskStatus = true;
-                      state = OnOff(); break; // must go through SetHelpKeys()!
+        case kRed:    state = OnOff(); break; // must go through SetHelpKeys()!
 -       case kGreen:  return New();
 +       case kGreen:  return Edit(true);
-        case kYellow: actualiseDiskStatus = true;
-                      state = Delete(); break;
+        case kYellow: state = Delete(); break;
         case kInfo:
-@@ -1177,6 +1200,11 @@ eOSState cMenuTimers::ProcessKey(eKeys K
-      actualiseDiskStatus = true;
+        case kBlue:   return Info();
+@@ -1222,6 +1245,11 @@ eOSState cMenuTimers::ProcessKey(eKeys K
+      Add(new cMenuTimerItem(Timers.Get(TimerNumber)), true);
       Display();
       }
 +  if (!HasSubMenu() && Timers.Count()<Count()) {
