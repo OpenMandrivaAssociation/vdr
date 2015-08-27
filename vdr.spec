@@ -35,7 +35,7 @@ Release:	1
 Group:		Video
 License:	GPLv2+
 URL:		http://www.tvdr.de/
-Source:		ftp://ftp.tvdr.de/vdr/%{name}-%{version}.tar.bz2
+Source0:	ftp://ftp.tvdr.de/vdr/%{name}-%{version}.tar.bz2
 
 Source2:	vdr-runvdr
 Source3:	vdr-shutdown.sh.example
@@ -755,11 +755,11 @@ vdr_plugin_params_do <<VDR_PLUGIN_PARAMS_EOF \\
 EOF
 
 %build
-%make vdr i18n
+%make vdr i18n CC=%{__cc} CXX=%{__cxx}
 
 %define vdr_plugin_ldflags %(echo "%{?ldflags}" | sed 's@-Wl,--no-undefined@@')
 # [a-z] does not match v,w on fi_FI.ISO-8859-15, TODO: patch to use [[:lower:]]
-LC_ALL=C %make plugins \
+LC_ALL=C %make plugins CC=%{__cc} CXX=%{__cxx} \
 	CFLAGS="%{optflags} %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags" \
 	CXXFLAGS="%{optflags} %vdr_plugin_flags -I%{_includedir}/ncursesw %vdr_plugin_ldflags"
 
