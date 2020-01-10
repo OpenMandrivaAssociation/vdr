@@ -453,7 +453,7 @@ tiled previews. It's just a very simple viewer.
 
 %prep
 %setup -q
-%apply_patches
+%autopatch -p1
 
 cp %{SOURCE9} .
 
