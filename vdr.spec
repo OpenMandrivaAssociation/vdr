@@ -34,7 +34,7 @@ Version:	2.0.7
 Release:	2
 Group:		Video
 License:	GPLv2+
-URL:		http://www.tvdr.de/
+URL:		https://www.tvdr.de/
 Source0:	ftp://ftp.tvdr.de/vdr/%{name}-%{version}.tar.bz2
 
 Source2:	vdr-runvdr
